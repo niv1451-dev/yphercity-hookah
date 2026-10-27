@@ -15,6 +15,7 @@ shared_scripts {
     'shared/utils.lua',
     'shared/locales.lua',
     'shared/items.lua',
+    'shared/layout.lua',
     'bridge/init.lua',
     'bridge/callbacks.lua',
     'bridge/framework.lua',
@@ -35,6 +36,7 @@ server_scripts {
     'server/orders.lua',
     'server/payments.lua',
     'server/diagnostics.lua',
+    'server/setup.lua',
     'server/api.lua',
     'server/main.lua',
 }
@@ -51,6 +53,7 @@ client_scripts {
     'client/consume.lua',
     'client/interactions.lua',
     'client/devtools.lua',
+    'client/setup.lua',
 }
 
 ui_page 'html/index.html'

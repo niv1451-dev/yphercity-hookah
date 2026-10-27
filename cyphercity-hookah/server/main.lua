@@ -119,6 +119,7 @@ local function startup()
 
     for _, message in ipairs(Catalog.errors) do Bridge.Print('error', 'Config: ' .. message) end
     for _, message in ipairs(Catalog.warnings) do Bridge.Print('warn', 'Config: ' .. message) end
+    Setup.Load() -- an in-game layout (data/layout.json) replaces the positions from config.lua
     for _, message in ipairs(Tables.Init()) do Bridge.Print('error', 'Config: ' .. message) end
     for _, message in ipairs(Diagnostics.ValidateConfig()) do Bridge.Print(message.level, 'Config: ' .. message.text) end
     for _, problem in ipairs(Bridge.problems) do Bridge.Print('warn', problem) end
@@ -178,6 +179,7 @@ AddEventHandler('playerDropped', function()
     Payments.OnDropped(src)
     Security.OnDropped(src)
     Sync.OnDropped(src)
+    Setup.OnDropped(src)
     Staff.InvalidateCache()
 end)
 

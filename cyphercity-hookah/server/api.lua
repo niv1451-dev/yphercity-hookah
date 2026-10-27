@@ -50,6 +50,7 @@ Callback.Register('bootstrap', function(src)
         tables = Tables.PublicList(),
         hookahs = Hookah.PublicState(),
         me = Sync.BuildPlayerState(src),
+        layout = Setup.Payload(),
     })
 end, 'getState')
 
@@ -245,5 +246,5 @@ Callback.Register('staffAction', function(src, payload)
 end)
 
 Callback.Register('devAllowed', function(src)
-    return success({ allowed = Config.Debug == true or IsPlayerAceAllowed(src, ServerConfig.AdminAce) })
+    return success({ allowed = Config.Debug == true or Setup.IsAdmin(src) })
 end, 'getState')

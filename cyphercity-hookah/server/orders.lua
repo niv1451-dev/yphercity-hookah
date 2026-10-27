@@ -705,7 +705,7 @@ function Orders.TickWalkouts()
     end
     for src, unpaid in pairs(debtors) do
         local position = Security.GetCoords(src)
-        local away = position and not Utils.WithinRange(position, Config.Venue.center, settings.awayDistance or 45.0, 30.0)
+        local away = position and not Utils.WithinRange(position, Config.Venue.center, Security.AwayDistance(), 30.0)
         if not away then
             awayState[src] = nil
         else

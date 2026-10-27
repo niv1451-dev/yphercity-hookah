@@ -901,5 +901,382 @@ end
 for _, kind in ipairs({ 'qbcore', 'qbox', 'esx' }) do
     staffSuite(kind)
 end
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- In-game placement tool (/hookahsetup)
+-- ═════════════════════════════════════════════════════════════════════════════
+
+local function setupSuite()
+    H.Section('Placement tool (/hookahsetup)')
+
+    local ADMIN_ACE = 'cyphercity.hookah.admin'
+    local BASE = { x = -1200.0, y = -880.0, z = 13.0 } -- far away from the demo venue in config.lua
+    local LAYOUT_FILE = 'data/layout.json'
+
+    local function admin(id) return H.Player({ id = id, aces = { [ADMIN_ACE] = true } }) end
+    local function stand(src, dx, dy, heading)
+        MOCK.Move(src, vec3(BASE.x + dx, BASE.y + dy, BASE.z))
+        MOCK.players[src].heading = heading or 0.0
+    end
+    local function act(src, payload)
+        MOCK.Advance(600) -- stay inside the setup rate limit
+        return MOCK.Call(src, 'setupAction', payload)
+    end
+    local function near(a, b, eps) return math.abs(a - b) < (eps or 0.011) end
+
+    -- hostess, one waiter, table 1 with two seats facing each other and one hookah spot
+    local function placeFullLayout(src)
+        H.Ok(MOCK.Call(src, 'setupOpen', {}), 'open')
+        stand(src, 0, 0, 180.0)
+        H.Ok(act(src, { action = 'hostess' }), 'hostess')
+        stand(src, 6, 0, 90.0)
+        H.Ok(act(src, { action = 'waiter_add' }), 'waiter')
+        local tableId = H.Ok(act(src, { action = 'table_add' }), 'table').data.selected
+        stand(src, 3, 5, 0.0)
+        H.Ok(act(src, { action = 'seat_add', tableId = tableId }), 'seat 1')
+        stand(src, 3, 7, 180.0)
+        H.Ok(act(src, { action = 'seat_add', tableId = tableId }), 'seat 2')
+        stand(src, 4, 6, 0.0)
+        H.Ok(act(src, { action = 'spot_add', tableId = tableId }), 'spot')
+        return tableId
+    end
+
+    H.Test('setup: only server admins (ACE) can use the placement tool — not even Debug mode opens it', function()
+        H.BootServer({ framework = 'standalone', config = function(c) c.Debug = true end })
+        H.Player({ id = 1 })
+        stand(1, 0, 0)
+        H.Fails(MOCK.Call(1, 'setupOpen', {}), 'setup_not_allowed', 'open')
+        H.Fails(act(1, { action = 'hostess' }), 'setup_not_allowed', 'action')
+        H.True(H.LogContains('setup_denied'), 'attempt logged as a security event')
+        H.True(MOCK.files[LAYOUT_FILE] == nil, 'nothing saved')
+        admin(2)
+        H.Ok(MOCK.Call(2, 'setupOpen', {}), 'admin opens')
+    end)
+
+    H.Test('setup: a draft is saved but does not change the running lounge until it is complete', function()
+        H.BootServer({ framework = 'qbcore' })
+        admin(1)
+        local hostessBefore = Config.Hostess.coords
+        local r = H.Ok(MOCK.Call(1, 'setupOpen', {}))
+        H.Eq(r.data.active, false, 'starts as draft')
+        H.Eq(#r.data.missing, 3, 'hostess, waiter and table missing')
+        stand(1, 0, 0, 180.0)
+        r = H.Ok(act(1, { action = 'hostess' }))
+        H.Eq(r.message, L('setup_hostess_set'), 'message')
+        H.True(MOCK.files[LAYOUT_FILE] ~= nil and MOCK.files[LAYOUT_FILE]:find('hostess', 1, true) ~= nil, 'draft saved to the file')
+        H.Eq(Config.Hostess.coords, hostessBefore, 'live hostess position unchanged')
+        H.Eq(Layout.active, false, 'still a draft')
+        H.Eq(#MOCK.EventsFor('cyphercity-hookah:client:layout'), 0, 'nothing broadcast for a draft')
+        stand(1, 6, 0, 90.0)
+        H.Ok(act(1, { action = 'waiter_add' }))
+        local tableId = H.Ok(act(1, { action = 'table_add' })).data.selected
+        H.Eq(tableId, 1, 'first table id')
+        stand(1, 3, 5, 0.0)
+        H.Fails(act(1, { action = 'seat_add' }), 'setup_select_table', 'seat without a table')
+        r = H.Ok(act(1, { action = 'seat_add', tableId = tableId }))
+        H.Eq(r.message, L('setup_activated', Config.Business.name), 'activation message')
+        H.True(Layout.active and r.data.active, 'active once complete')
+        -- the lounge now runs on the placed points
+        H.True(near(Config.Hostess.coords.x, BASE.x) and near(Config.Hostess.coords.w, 180.0), 'hostess moved')
+        H.Eq(#Config.Tables, 1, 'tables from the layout')
+        H.Eq(#Tables.list, 1, 'server tables rebuilt')
+        H.Eq(Tables.Get(1).seatCount, 1, 'one seat')
+        local seat = Config.Tables[1].seats[1]
+        H.True(near(seat.x, BASE.x + 3) and near(seat.y, BASE.y + 5 - 0.35), 'seat saved behind the admin (back to the chair)')
+        H.Eq(Config.Venue.snapToGround, false, 'no ground snapping for placed points')
+        H.True(Utils.Dist2D(Config.Venue.center, vec3(BASE.x, BASE.y, BASE.z)) < 10, 'venue centre moved')
+        H.True(Config.Staff.managementPoint == nil, 'no staff point from config.lua at the new place')
+        local events = MOCK.EventsFor('cyphercity-hookah:client:layout', -1)
+        H.Eq(#events, 1, 'layout broadcast to everyone')
+        H.True(events[1].args[1].layout and events[1].args[1].revision, 'payload has layout + revision')
+        -- and works for a customer
+        H.Player({ id = 2 })
+        H.Eq(H.Seat(2, 1), 1, 'customer gets the placed table')
+    end)
+
+    H.Test('setup: duplicate, far-away and invalid points are refused; limits apply', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        local tableId = placeFullLayout(1)
+        stand(1, 4, 6, 0.0)
+        H.Fails(act(1, { action = 'spot_add', tableId = tableId }), 'setup_too_close', 'same spot twice')
+        MOCK.Move(1, vec3(BASE.x + 600, BASE.y, BASE.z))
+        H.Fails(act(1, { action = 'waiter_add' }), 'setup_too_far', 'another part of the map')
+        MOCK.Move(1, vec3(0, 0, 0))
+        H.Fails(act(1, { action = 'waiter_add' }), 'setup_no_position', 'position unknown')
+        H.Fails(act(1, { action = 'teleport' }), 'invalid_request', 'unknown action')
+        H.Fails(act(1, { action = 'table_update', tableId = tableId, label = '   ' }), 'setup_label_invalid', 'empty label')
+        H.Fails(act(1, { action = 'seat_add', tableId = 99 }), 'setup_select_table', 'unknown table')
+        H.Ok(act(1, { action = 'table_update', tableId = tableId, label = '<b>ספה</b>', vip = true, seatZ = 5 }))
+        local t = Layout.FindTable(Layout.data, tableId)
+        H.Eq(t.label, 'bספה/b', 'label sanitised')
+        H.Eq(t.vip, true, 'vip')
+        H.Eq(t.seatZ, Layout.SEAT_Z, 'seat height clamped')
+        H.Eq(Config.Tables[1].seatZ, Layout.SEAT_Z, 'seat height reaches Config.Tables')
+        for i = 1, Layout.MAX.waiters - 1 do
+            stand(1, 6, i * 1.5, 90.0)
+            H.Ok(act(1, { action = 'waiter_add' }), 'waiter ' .. (i + 1))
+        end
+        stand(1, -6, 0, 90.0)
+        H.Fails(act(1, { action = 'waiter_add' }), 'setup_limit', 'waiter limit')
+        H.Eq(#Config.Waiters, Layout.MAX.waiters, 'waiters applied')
+        local served = 0
+        for _, w in ipairs(Config.Waiters) do served = served + #w.tables end
+        H.Eq(served, #Config.Tables, 'every table has exactly one waiter')
+    end)
+
+    H.Test('setup: tables with guests are never changed under them; the rest of the layout can be', function()
+        H.BootServer({ framework = 'qbcore' })
+        admin(1)
+        local tableId = placeFullLayout(1)
+        H.Player({ id = 2 })
+        H.Seat(2, 2)
+        local t = Tables.Get(tableId)
+        local session = t.session
+        stand(1, 1, 6, 90.0)
+        for _, payload in ipairs({
+            { action = 'seat_add', tableId = tableId },
+            { action = 'seat_remove', tableId = tableId },
+            { action = 'spot_remove', tableId = tableId },
+            { action = 'seat_nudge', tableId = tableId, index = 1, forward = 0.1 },
+            { action = 'reset' },
+        }) do
+            H.Fails(act(1, payload), 'setup_table_busy', payload.action)
+        end
+        H.Ok(act(1, { action = 'table_update', tableId = tableId, label = 'שולחן הספה' }), 'rename is fine')
+        stand(1, 0, -1, 180.0)
+        H.Ok(act(1, { action = 'hostess' }), 'moving the hostess is fine')
+        local second = H.Ok(act(1, { action = 'table_add' })).data.selected
+        stand(1, 10, 5, 0.0)
+        H.Ok(act(1, { action = 'seat_add', tableId = second }), 'new table next to it is fine')
+        t = Tables.Get(tableId)
+        H.Eq(t.label, 'שולחן הספה', 'label updated in place')
+        H.Eq(t.status, 'occupied', 'still occupied')
+        H.Eq(t.session, session, 'same party session')
+        H.True(Tables.Of(2) == t, 'guest still at the table')
+        H.Eq(#Tables.list, 2, 'two tables')
+        H.Fails(act(1, { action = 'table_remove', tableId = tableId }), 'setup_table_busy', 'deleting the occupied table')
+        H.Eq(#Layout.data.tables, 2, 'no table was deleted instead')
+        H.Ok(act(1, { action = 'table_remove', tableId = second }), 'the free table can be deleted')
+        H.True(Layout.FindTable(Layout.data, tableId) ~= nil and Layout.FindTable(Layout.data, second) == nil, 'exactly the chosen table was deleted')
+        H.Eq(#Tables.list, 1, 'one table left')
+        -- once the guests have left and the table is clean, it can be edited again
+        H.Ok(MOCK.Call(2, 'leaveTable', {}))
+        H.RunUntil(function() return Tables.Get(tableId).status == 'free' end, 120000)
+        stand(1, 1, 6, 90.0)
+        H.Ok(act(1, { action = 'seat_add', tableId = tableId }), 'free table can change')
+        H.Eq(Tables.Get(tableId).seatCount, 3, 'third seat live')
+        H.Eq(Tables.Get(tableId).session, session, 'session counter kept (no mix-up with old orders)')
+    end)
+
+    H.Test('setup: a hostess placed in the wrong place can be moved to the right one', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        H.Ok(MOCK.Call(1, 'setupOpen', {}))
+        MOCK.Move(1, vec3(195.0, -935.0, 29.7)) -- by mistake at the demo square
+        H.Ok(act(1, { action = 'hostess' }))
+        stand(1, 0, 0, 180.0)
+        H.Ok(act(1, { action = 'hostess' }), 'moved far away to the real venue')
+        H.True(near(Layout.data.hostess[1], BASE.x), 'hostess at the real venue')
+        stand(1, 6, 0, 90.0)
+        H.Ok(act(1, { action = 'waiter_add' }), 'the rest is measured from the new spot')
+    end)
+
+    H.Test('setup: guests at the far tables of a large venue are not treated as having left', function()
+        H.BootServer({ framework = 'qbcore' })
+        admin(1)
+        H.Ok(MOCK.Call(1, 'setupOpen', {}))
+        stand(1, 0, 0, 180.0)
+        H.Ok(act(1, { action = 'hostess' }))
+        stand(1, 2, 0, 90.0)
+        H.Ok(act(1, { action = 'waiter_add' }))
+        local near1 = H.Ok(act(1, { action = 'table_add' })).data.selected
+        stand(1, 0, 4, 0.0)
+        H.Ok(act(1, { action = 'seat_add', tableId = near1 }))
+        local far = H.Ok(act(1, { action = 'table_add' })).data.selected
+        stand(1, 0, 110, 0.0) -- a long hall: this table is ~55 m from the centre
+        H.Ok(act(1, { action = 'seat_add', tableId = far }))
+        H.True(Config.Venue.radius > Config.TableSettings.awayDistance, 'venue larger than awayDistance')
+        H.Player({ id = 2 })
+        H.AtHostess(2)
+        MOCK.Advance(16000)
+        H.Ok(MOCK.Call(2, 'requestTable', { partySize = 1 }))
+        local t = Tables.Of(2)
+        H.AtTable(2, t.id)
+        H.Ok(MOCK.Call(2, 'sit', { tableId = t.id }))
+        -- seat the guest at the far table explicitly
+        if t.id ~= far then
+            H.Ok(MOCK.Call(2, 'leaveTable', {}))
+            Tables.Get(near1).status = 'occupied' -- keep the near table busy so the hostess picks the far one
+            H.AtHostess(2)
+            MOCK.Advance(16000)
+            H.Ok(MOCK.Call(2, 'requestTable', { partySize = 1 }))
+            t = Tables.Of(2)
+            H.AtTable(2, t.id)
+            H.Ok(MOCK.Call(2, 'sit', { tableId = t.id }))
+        end
+        H.Eq(t.id, far, 'guest at the far table')
+        MOCK.Advance((Config.TableSettings.awayTimeout + 30) * 1000)
+        H.True(Tables.Of(2) == t, 'still at the table after the away timeout')
+    end)
+
+    H.Test('setup: a running layout always keeps a hostess, a waiter and a table with a seat', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        local tableId = placeFullLayout(1)
+        H.Fails(act(1, { action = 'waiter_remove' }), 'setup_keep_waiter', 'last waiter')
+        H.Fails(act(1, { action = 'table_remove', tableId = tableId }), 'setup_keep_table', 'last table')
+        H.Ok(act(1, { action = 'seat_remove', tableId = tableId }), 'one of two seats')
+        H.Fails(act(1, { action = 'seat_remove', tableId = tableId }), 'setup_keep_table', 'last seat')
+        H.Fails(act(1, { action = 'manager_clear' }), 'setup_nothing_to_remove', 'no staff point yet')
+        stand(1, 6, 2, 0.0)
+        H.Ok(act(1, { action = 'manager' }), 'staff point')
+        H.True(Config.Staff.managementPoint and near(Config.Staff.managementPoint.coords.y, BASE.y + 2), 'staff point applied')
+        H.Ok(act(1, { action = 'manager_clear' }), 'staff point removed')
+        H.True(Config.Staff.managementPoint == nil, 'staff point gone')
+    end)
+
+    H.Test('setup: switching between config.lua and the layout never restarts table session numbers', function()
+        H.BootServer({ framework = 'qbcore' })
+        admin(1)
+        H.Player({ id = 2 })
+        -- use config.lua table 2 once, so it has a party session behind it
+        for _ = 1, 2 do
+            H.AtHostess(2)
+            MOCK.Advance(16000)
+            H.Ok(MOCK.Call(2, 'requestTable', { partySize = 1 }))
+            H.Ok(MOCK.Call(2, 'leaveTable', {}))
+        end
+        H.RunUntil(function()
+            for _, t in ipairs(Tables.list) do if t.status ~= 'free' then return false end end
+            return true
+        end, 120000)
+        local used = {}
+        for _, t in ipairs(Tables.list) do if t.session > 0 then used[t.id] = t.session end end
+        H.True(next(used) ~= nil, 'a config table was used')
+        placeFullLayout(1)
+        H.Eq(#Tables.list, 1, 'layout has one table')
+        H.Ok(act(1, { action = 'reset' }))
+        H.Eq(#Tables.list, 6, 'config tables back')
+        for id, session in pairs(used) do
+            H.Eq(Tables.Get(id).session, session, 'table ' .. id .. ' keeps its session counter')
+        end
+    end)
+
+    H.Test('setup: the layout survives a restart; broken or hostile files are ignored safely', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        placeFullLayout(1)
+        local saved = MOCK.files[LAYOUT_FILE]
+        H.True(saved and #saved > 0, 'file written')
+
+        H.BootServer({ framework = 'standalone', beforeLoad = function() MOCK.files[LAYOUT_FILE] = saved end })
+        H.True(Layout.active, 'active after restart')
+        H.True(near(Config.Hostess.coords.x, BASE.x), 'hostess from the file')
+        H.Eq(#Tables.list, 1, 'tables from the file')
+        H.Eq(Tables.Get(1).hookahSpots, 1, 'hookah spot from the file')
+
+        H.BootServer({ framework = 'standalone', beforeLoad = function() MOCK.files[LAYOUT_FILE] = '{not json' end })
+        H.True(Server.ready, 'boots with a broken file')
+        H.Eq(Layout.active, false, 'broken file ignored')
+        H.Eq(#Tables.list, 6, 'config.lua tables')
+
+        local hostile = {
+            hostess = { 1e12, 0, 0 },
+            waiters = { { 'x', 1, 2 }, { BASE.x, BASE.y, BASE.z, 'north' } },
+            tables = {},
+            nextId = -5,
+        }
+        for i = 1, 200 do
+            hostile.tables[i] = { id = (i % 3 == 0) and 1 or i, label = string.rep('<', 5) .. 'x', seats = { { BASE.x, BASE.y + i * 0.5, BASE.z, 90 } }, spots = 'many' }
+        end
+        local data = Layout.Sanitize(json.decode(json.encode(hostile)))
+        H.True(data.hostess == nil, 'out-of-range hostess dropped')
+        H.Eq(#data.waiters, 1, 'only the valid waiter kept')
+        H.Eq(data.waiters[1][4], 0.0, 'invalid heading → 0')
+        H.Eq(#data.tables, Layout.MAX.tables, 'table count capped')
+        local ids = {}
+        for _, t in ipairs(data.tables) do
+            H.True(not ids[t.id], 'unique table ids')
+            ids[t.id] = true
+            H.Eq(#t.spots, 0, 'invalid spot list dropped')
+            H.True(not t.label:find('<', 1, true), 'label sanitised')
+        end
+        H.True(data.nextId > 1, 'next id repaired')
+        H.Eq(Layout.IsComplete(data), false, 'no hostess → stays a draft')
+    end)
+
+    H.Test('setup: fine-tuning seats, export to config.lua and reset back to config.lua', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        local tableId = placeFullLayout(1)
+        local before = Config.Tables[1].seats[1]
+        H.Ok(act(1, { action = 'seat_nudge', tableId = tableId, index = 1, forward = 0.1 }))
+        local after = Config.Tables[1].seats[1]
+        H.True(near(after.y, before.y + 0.1) and near(after.x, before.x), 'seat 1 (facing north) moved 10 cm forward')
+        H.Ok(act(1, { action = 'seat_nudge', tableId = tableId, index = 1, turn = -15 }))
+        H.True(near(Config.Tables[1].seats[1].w, 345.0), 'turned right by 15°')
+        H.Fails(act(1, { action = 'seat_nudge', tableId = tableId, index = 9, forward = 0.1 }), 'setup_nothing_to_remove', 'unknown seat')
+
+        local r = H.Ok(act(1, { action = 'export' }))
+        local text = r.data.text
+        H.True(text:find('Config.Tables = {', 1, true) ~= nil, 'tables in export')
+        local env = {
+            vec3 = vec3, vec4 = vec4,
+            Config = { Venue = {}, Furniture = {}, Hostess = {}, Staff = {} },
+        }
+        local chunk, err = load(text, 'export', 't', env)
+        H.True(chunk ~= nil, 'export is valid Lua: ' .. tostring(err))
+        chunk()
+        H.Eq(#env.Config.Tables, 1, 'exported tables')
+        H.Eq(#env.Config.Tables[1].seats, 2, 'exported seats')
+        H.Eq(#env.Config.Waiters, 1, 'exported waiters')
+        H.True(near(env.Config.Hostess.coords.x, BASE.x), 'exported hostess')
+
+        MOCK.ClearEvents()
+        H.Ok(act(1, { action = 'reset' }))
+        H.True(Layout.data == nil and not Layout.active, 'layout removed')
+        H.Eq(#Config.Tables, 6, 'config.lua tables back')
+        H.Eq(#Tables.list, 6, 'server tables back')
+        H.Eq(MOCK.files[LAYOUT_FILE], '', 'file emptied')
+        local events = MOCK.EventsFor('cyphercity-hookah:client:layout', -1)
+        H.True(#events == 1 and events[1].args[1].layout == false, 'clients told to use config.lua')
+        H.Fails(act(1, { action = 'export' }), 'setup_export_incomplete', 'nothing to export')
+        H.Fails(act(1, { action = 'reset' }), 'setup_nothing_to_remove', 'nothing to reset')
+    end)
+
+    H.Test('setup: without OneSync the admin client position is used and validated', function()
+        H.BootServer({ framework = 'standalone', onesync = 'off' })
+        admin(1)
+        H.Ok(MOCK.Call(1, 'setupOpen', {}))
+        local r = H.Ok(act(1, { action = 'hostess', pos = { x = BASE.x, y = BASE.y, z = BASE.z, h = 45.0 } }))
+        H.True(near(r.data.layout.hostess[1], BASE.x) and near(r.data.layout.hostess[4], 45.0), 'client position used')
+        H.Eq(r.data.oneSync, false, 'panel is told OneSync is off')
+        H.Fails(act(1, { action = 'waiter_add', pos = { x = 'a', y = BASE.y, z = BASE.z } }), 'setup_no_position', 'garbage position')
+        H.Fails(act(1, { action = 'waiter_add' }), 'setup_no_position', 'missing position')
+    end)
+
+    H.Test('setup: other admins see changes live; players get the layout when they join', function()
+        H.BootServer({ framework = 'standalone' })
+        admin(1)
+        admin(2)
+        H.Ok(MOCK.Call(2, 'setupOpen', {}))
+        placeFullLayout(1)
+        H.True(#MOCK.EventsFor('cyphercity-hookah:client:setupState', 2) >= 1, 'second admin updated')
+        H.Eq(#MOCK.EventsFor('cyphercity-hookah:client:setupState', 1), 0, 'the editor gets the answer instead')
+        H.Ok(MOCK.Call(2, 'setupClose', {}))
+        local count = #MOCK.EventsFor('cyphercity-hookah:client:setupState', 2)
+        stand(1, 0, 1, 180.0)
+        H.Ok(act(1, { action = 'hostess' }))
+        H.Eq(#MOCK.EventsFor('cyphercity-hookah:client:setupState', 2), count, 'closed editor is no longer updated')
+        H.Player({ id = 3 })
+        local boot = H.Ok(MOCK.Call(3, 'bootstrap', {}))
+        H.True(boot.data.layout.layout and boot.data.layout.revision == Setup.revision, 'bootstrap carries the active layout')
+        H.True(H.LogContains(L('setup_hostess_set')), 'changes are logged')
+        H.True(Setup.Report():find('ACTIVE', 1, true) ~= nil, 'hookahdiag shows the layout')
+    end)
+end
+
 edgeSuite()
 reviewSuite()
+setupSuite()

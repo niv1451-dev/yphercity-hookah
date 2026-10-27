@@ -249,6 +249,89 @@ const numberIn = (text) => Number(String(text).replace(/[^\d]/g, ''));
     await page.setViewportSize({ width: 1920, height: 1080 });
   });
 
+  await test('placement tool: tools, tables, live status, confirmations and the HUD', async () => {
+    await open('?panel=setup');
+    assert.strictEqual(await page.locator('.setup-layout').count(), 1, 'setup panel');
+    assert.strictEqual(await page.locator('.tab').count(), 1, 'only the placement tab');
+    assert.ok(await page.isHidden('#tableBadge'), 'no table badge in setup');
+    assert.strictEqual(await page.locator('.tool').count(), 5, 'five tools');
+    assert.ok((await page.textContent('.setup-status')).includes('טיוטה'), 'starts as draft');
+    assert.strictEqual(await page.locator('.setup-check.missing').count(), 3, 'hostess, waiter, table missing');
+    // hostess, waiter
+    await page.click('[data-action="setupPlace"]');
+    await page.waitForSelector('.toast');
+    assert.ok((await page.textContent('#toasts')).includes('המארחת תעמוד כאן'), 'server message shown');
+    await page.click('.tool[data-tool="waiter"]');
+    assert.ok((await page.textContent('.place-card')).includes('עמדת מלצר'), 'place card follows the tool');
+    await page.click('[data-action="setupPlace"]');
+    await page.waitForFunction(() => document.querySelectorAll('.setup-side .member-list li button').length === 1);
+    // seat tool without a table cannot place
+    await page.click('.tool[data-tool="seat"]');
+    assert.ok(await page.isDisabled('[data-action="setupPlace"]'), 'needs a table');
+    // a new table selects itself and switches to the seat tool
+    await page.click('[data-op="table_add"]');
+    await page.waitForSelector('.setup-editor');
+    assert.ok((await page.inputValue('#setupLabel')).includes('שולחן 1'));
+    await page.click('[data-action="setupPlace"]');
+    await page.waitForFunction(() => document.querySelector('.setup-status').textContent.includes('ההצבה פעילה'));
+    assert.ok((await page.textContent('#toasts')).includes('פועל עכשיו כאן'), 'activation message');
+    await page.click('[data-action="setupPlace"]');
+    await page.waitForFunction(() => document.querySelectorAll('.seat-chips .chip').length === 2);
+    // table editor: height, VIP, rename with Enter
+    await page.click('[data-action="setupSeatZ"][data-delta="0.05"]');
+    await page.waitForFunction(() => document.querySelector('.se-height .stepper span').textContent.includes('+5'));
+    await page.click('[data-action="setupVip"]');
+    await page.waitForSelector('.setup-table.active .vip-mark');
+    await page.fill('#setupLabel', 'שולחן הספה');
+    await page.press('#setupLabel', 'Enter');
+    await page.waitForFunction(() => document.querySelector('.setup-table.active .st-name').textContent.includes('הספה'));
+    // delete asks first
+    await page.click('[data-action="setupRemoveTable"]');
+    assert.ok((await page.textContent('#modal')).includes('הספה'), 'confirmation names the table');
+    await page.click('#modal [data-action="closeModal"]');
+    assert.strictEqual(await page.locator('.setup-table:not(.add)').count(), 1, 'nothing deleted on cancel');
+    await page.click('[data-action="setupReset"]');
+    assert.ok(await page.isVisible('#modal .btn.danger'), 'reset needs a confirmation');
+    await page.click('#modal [data-action="closeModal"]');
+    // ESC closes the menu, the HUD stays while placing
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('#setupHud:not([hidden])');
+    const hud = await page.textContent('#setupHud');
+    assert.ok(hud.includes('כיסא') && hud.includes('הספה') && hud.includes('F7'), 'HUD: tool, table and keys');
+    await page.evaluate(() => window.CCH.handleMessage({ action: 'setup', data: Object.assign({}, window.CCH_PREVIEW.setup, { sitting: true, setup: window.CCH_PREVIEW.setupState }) }));
+    assert.ok((await page.textContent('#setupHud')).includes('לקום'), 'HUD during the test sit');
+    await page.evaluate(() => window.CCH.handleMessage({ action: 'setup', data: Object.assign({}, window.CCH_PREVIEW.setup, { active: false, setup: window.CCH_PREVIEW.setupState }) }));
+    assert.ok(await page.isHidden('#setupHud'), 'HUD hidden when the mode ends');
+  });
+
+  await test('placement tool with a finished layout (screenshots) and a busy table', async () => {
+    await open('?panel=setup&layout=full');
+    assert.ok((await page.textContent('.setup-status')).includes('ההצבה פעילה'));
+    assert.strictEqual(await page.locator('.setup-table .status.occupied').count(), 1, 'table in use is marked');
+    await shot(page, '18-setup-menu');
+    await page.evaluate(() => { document.querySelector('.setup-layout').scrollTop = 99999; });
+    await shot(page, '20-setup-table');
+    await page.evaluate(() => { document.querySelector('.setup-layout').scrollTop = 0; });
+    await page.click('.setup-table[data-id="2"]');
+    await page.click('[data-action="setupTestSit"]');
+    assert.strictEqual(await page.locator('#app[hidden]').count(), 1, 'test sit closes the menu');
+    await page.waitForTimeout(100); // the preview answers the test sit asynchronously
+    await page.evaluate(() => {
+      Object.assign(window.CCH_PREVIEW.setup, { sitting: false, tool: 'seat', tableId: 3 });
+      window.CCH.handleMessage({ action: 'setup', data: Object.assign({}, window.CCH_PREVIEW.setup, { setup: window.CCH_PREVIEW.setupState }) });
+    });
+    await page.waitForSelector('#setupHud:not([hidden])');
+    await shot(page, '19-setup-hud');
+    await page.evaluate(() => window.CCH.handleMessage({ action: 'open', data: { panel: 'setup', context: Object.assign({}, window.CCH_PREVIEW.setup, { setup: window.CCH_PREVIEW.setupState }) } }));
+    await page.click('.setup-table[data-id="2"]');
+    await page.click('[data-action="setupDo"][data-op="seat_remove"]');
+    await page.waitForFunction(() => document.querySelector('#toasts').textContent.includes('בשימוש'));
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    assert.strictEqual(overflow, false, 'setup fits 720p');
+    await page.setViewportSize({ width: 1920, height: 1080 });
+  });
+
   await test('no JavaScript errors were thrown', async () => {
     assert.deepStrictEqual(errors, []);
   });

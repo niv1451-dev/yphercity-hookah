@@ -6,13 +6,15 @@ Seat = {
 }
 
 local SIT_SCENARIO = 'PROP_HUMAN_SEAT_CHAIR_MP_PLAYER'
+Seat.SCENARIO = SIT_SCENARIO
 local guideThread = false
 
 function Seat.Coords(tableId, seatIndex)
     local def = Client.TableDef(tableId)
     local seat = def and def.seats and def.seats[seatIndex]
     if not seat then return nil end
-    local z = ClientUtil.FloorZ(seat) + (Config.Furniture.seatZOffset or 0.5)
+    -- seatZ: per-table height correction (couches, bar stools), set in config or with /hookahsetup
+    local z = ClientUtil.FloorZ(seat) + (Config.Furniture.seatZOffset or 0.5) + (def.seatZ or 0.0)
     return vec4(seat.x, seat.y, z, seat.w)
 end
 

@@ -259,6 +259,11 @@ function GetEntityCoords(ped)
     return p and p.coords or vec3(0, 0, 0)
 end
 
+function GetEntityHeading(ped)
+    local p = M.players[ped - 100000]
+    return p and p.heading or 0.0
+end
+
 function GetPlayerIdentifierByType(src, kind)
     local p = M.players[tonumber(src) or -1]
     if not p then return nil end

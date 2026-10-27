@@ -109,6 +109,13 @@ function Security.IsNear(src, coords, distance)
     return Utils.WithinRange(position, coords, distance + (Config.Security.interactTolerance or 3.0), 8.0)
 end
 
+-- Distance from the venue centre at which a player counts as having left.
+-- Never smaller than the venue itself: an in-game layout can be larger than
+-- Config.TableSettings.awayDistance, and guests at its far tables are not "away".
+function Security.AwayDistance()
+    return math.max(Config.TableSettings.awayDistance or 45.0, (Config.Venue.radius or 0) + 10.0)
+end
+
 function Security.InVenue(src)
     return Security.IsNear(src, Config.Venue.center, Config.Venue.radius)
 end

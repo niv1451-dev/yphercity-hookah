@@ -41,6 +41,9 @@
     modal: null,
     busy: new Set(),
     contextOpen: false,
+    setup: null,      // placement tool (/hookahsetup): { active, state, tool, tableId, sitting, keys }
+    setupSeat: null,  // seat picked in the table editor (index)
+    setupSeatTable: null,
   };
 
   let LOC = (window.CCH_LOCALES && window.CCH_LOCALES.he) || {};
@@ -119,6 +122,27 @@
         tags: arr(p.tags),
         allowedFlavors: p.allowedFlavors ? arr(p.allowedFlavors) : null,
       })),
+    };
+  }
+
+  function normSetup(data) {
+    data = data || {};
+    const state = data.setup || {};
+    const layout = state.layout || {};
+    layout.waiters = arr(layout.waiters).map(arr);
+    layout.tables = arr(layout.tables).map((tb) => Object.assign(tb, { seats: arr(tb.seats).map(arr), spots: arr(tb.spots).map(arr) }));
+    if (layout.hostess) layout.hostess = arr(layout.hostess);
+    if (layout.manager) layout.manager = arr(layout.manager);
+    state.layout = layout;
+    state.missing = arr(state.missing);
+    state.busy = arr(state.busy);
+    return {
+      active: data.active !== false,
+      state,
+      tool: data.tool || 'hostess',
+      tableId: data.tableId || null,
+      sitting: data.sitting === true,
+      keys: data.keys || { place: 'E', menu: 'F7' },
     };
   }
 
@@ -349,6 +373,7 @@
       if (session) S.modal = { type: context.mode === 'coals' ? 'hookahCoals' : 'hookahFlavor', sessionId: session.id, selected: session.flavors.slice() };
     }
     if (panel === 'staff' && context.staff) S.staff = normStaff(context.staff);
+    if (panel === 'setup') S.setup = normSetup(Object.assign({ active: true }, context));
     S.panel = panel;
     if (panel === 'bill') {
       S.billMode = context.mode || (S.me.isOwner && S.settings.allowTableBill ? 'table' : 'personal');
@@ -363,6 +388,7 @@
     S.modal = null;
     app.hidden = true;
     modalEl.hidden = true;
+    renderHud();
   }
 
   function close() {
@@ -393,6 +419,13 @@
       case 'prompt': showPrompt(data || {}); break;
       case 'context': openContext(arr(data && data.options)); break;
       case 'clipboard': copyText(data && data.text); break;
+      case 'setup':
+        S.setup = normSetup(data);
+        if (S.setup.tableId !== (S.setupSeatTable || null)) { S.setupSeat = null; S.setupSeatTable = S.setup.tableId; }
+        if (!S.setup.active && S.panel === 'setup') { S.panel = 'menu'; if (S.open) close(); }
+        if (S.open && S.panel === 'setup') render();
+        renderHud();
+        break;
       default: break;
     }
   }
@@ -402,6 +435,7 @@
   // ── rendering ───────────────────────────────────────────
 
   function tabs() {
+    if (S.panel === 'setup') return `<button class="tab active" type="button" role="tab">${esc(t('tab_setup'))}</button>`;
     const list = ['host', 'menu', 'orders', 'bill'];
     if (S.me.staffRole) list.push('staff');
     const bill = S.me.bill || {};
@@ -424,19 +458,21 @@
     const badge = $('#tableBadge');
     badge.textContent = S.me.tableLabel ? t('table_badge', { table: S.me.tableLabel }) : t('no_table_badge');
     badge.classList.toggle('muted', !S.me.tableLabel);
+    badge.hidden = S.panel === 'setup';
 
-    const renderers = { host: renderHost, menu: renderMenu, orders: renderOrders, bill: renderBill, staff: renderStaff };
+    const renderers = { host: renderHost, menu: renderMenu, orders: renderOrders, bill: renderBill, staff: renderStaff, setup: renderSetup };
     const panelKey = S.panel + ':' + (S.panel === 'staff' ? S.staffTab : S.panel === 'menu' ? S.category : '');
     const fresh = panelKey !== lastPanel;
     lastPanel = panelKey;
-    const scroller = panelEl.querySelector('.product-grid, .orders-layout, .staff-body, .host-layout, .bill-layout');
+    const scroller = panelEl.querySelector('.product-grid, .orders-layout, .staff-body, .host-layout, .bill-layout, .setup-layout');
     const scrollTop = !fresh && scroller ? scroller.scrollTop : 0;
     panelEl.innerHTML = `<div class="panel ${fresh ? '' : 'static'}">${(renderers[S.panel] || renderMenu)()}</div>`;
     if (scrollTop) {
-      const next = panelEl.querySelector('.product-grid, .orders-layout, .staff-body, .host-layout, .bill-layout');
+      const next = panelEl.querySelector('.product-grid, .orders-layout, .staff-body, .host-layout, .bill-layout, .setup-layout');
       if (next) next.scrollTop = scrollTop;
     }
     renderModal();
+    renderHud();
 
     if (focusId) {
       const el = document.getElementById(focusId);
@@ -1054,7 +1090,7 @@
       loadLogs();
       return `<div class="empty">${spinner()}<span>${esc(t('loading'))}</span></div>`;
     }
-    const cats = [null, 'order', 'payment', 'table', 'hookah', 'staff', 'security', 'system'];
+    const cats = [null, 'order', 'payment', 'table', 'hookah', 'staff', 'security', 'setup', 'system'];
     const chips = cats.map((c) => `<button class="chip ${S.logCategory === c ? 'active' : ''}" type="button" data-action="logCategory" data-cat="${c || ''}">${esc(c ? t('log_' + c) : t('staff_logs_all'))}</button>`).join('');
     const rows = S.logs.map((e) => {
       const time = new Date(e.time * 1000);
@@ -1093,6 +1129,236 @@
   }
 
   // ── modals ──────────────────────────────────────────────
+
+  // Placement tool (/hookahsetup) --------------------------------------------------
+
+  const SETUP_TOOLS = ['hostess', 'waiter', 'seat', 'spot', 'manager'];
+  const SETUP_COLORS = { hostess: '#d4af5f', waiter: '#6eaae6', seat: '#5ac878', spot: '#c878dc', manager: '#e6785a', table: '#d4af5f' };
+  const SETUP_ICONS = {
+    hostess: '<circle cx="12" cy="7" r="3.2"/><path d="M5.5 20c.6-4 3.2-6.2 6.5-6.2s5.9 2.2 6.5 6.2"/><path d="M9 3.6l3 1.4 3-1.4"/>',
+    waiter: '<circle cx="12" cy="6.5" r="3"/><path d="M6 20c.5-3.7 2.8-5.8 6-5.8s5.5 2.1 6 5.8"/><path d="M15.5 11.5h5M18 11.5V9.8"/>',
+    seat: '<path d="M7 4v9h10"/><path d="M7 13v7M17 13v7M7 9h8"/>',
+    spot: '<path d="M12 3v4M9.5 7h5l-1 5h-3z"/><path d="M8 20h8l-1.3-5.5H9.3z"/><path d="M14.7 15c2.5 0 3.8 1.3 4.8 3"/>',
+    manager: '<rect x="4" y="9" width="16" height="10" rx="1.5"/><path d="M8 9V6h8v3M4 13h16"/>',
+    table: '<ellipse cx="12" cy="9" rx="8" ry="3"/><path d="M12 12v8M8 20h8"/>',
+  };
+
+  // --c = the tool colour, --cs = the same colour, soft (for backgrounds)
+  function setupStyle(kind) {
+    const hex = SETUP_COLORS[kind] || SETUP_COLORS.table;
+    const n = parseInt(hex.slice(1), 16);
+    return `--c:${hex};--cs:rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.16)`;
+  }
+
+  function setupIcon(name) {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${SETUP_ICONS[name] || ''}</svg>`;
+  }
+
+  function setupData() {
+    return (S.setup && S.setup.state) || { layout: { waiters: [], tables: [] }, missing: [], busy: [] };
+  }
+
+  function setupTable(id) {
+    return setupData().layout.tables.find((tb) => tb.id === id) || null;
+  }
+
+  function setupToolLabel(tool) {
+    const table = setupTable(S.setup && S.setup.tableId);
+    const name = t('setup_tool_' + tool);
+    return (tool === 'seat' || tool === 'spot') && table ? name + ' · ' + table.label : name;
+  }
+
+  function setupMissingText(state) {
+    return state.missing.map((k) => t('setup_missing_' + k)).join(' · ');
+  }
+
+  function renderHud() {
+    const el = $('#setupHud');
+    if (!el) return;
+    const setup = S.setup;
+    if (!setup || !setup.active || S.open) { el.hidden = true; return; }
+    const state = setupData();
+    const keys = setup.keys;
+    const tool = setup.tool;
+    const missing = state.active ? '' : `<div class="sh-missing">${esc(t('setup_hud_missing', { list: setupMissingText(state) }))}</div>`;
+    const body = setup.sitting
+      ? `<div class="sh-tool"><div class="sh-text"><div class="sh-name">${esc(t('setup_test_sit'))}</div><div class="sh-hint">${esc(t('setup_hud_sitting'))}</div></div></div>
+         <div class="sh-keys"><span><kbd>${esc(keys.place)}</kbd>${esc(t('setup_hud_stand'))}</span></div>`
+      : `<div class="sh-tool" style="${setupStyle(tool)}"><span class="sh-icon">${setupIcon(tool)}</span>
+           <div class="sh-text"><div class="sh-name">${esc(setupToolLabel(tool))}</div><div class="sh-hint">${esc(t('setup_hint_' + tool))}</div></div></div>
+         ${(tool === 'seat' || tool === 'spot') && !setupTable(setup.tableId) ? `<div class="sh-missing">${esc(t('setup_need_table'))}</div>` : ''}
+         <div class="sh-keys"><span><kbd>${esc(keys.place)}</kbd>${esc(t('setup_hud_place'))}</span><span><kbd>${esc(keys.menu)}</kbd>${esc(t('setup_hud_menu'))}</span></div>`;
+    el.innerHTML = `
+      <div class="sh-head">
+        <span class="sh-title">${esc(t('tab_setup'))}</span>
+        <span class="status ${state.active ? 'free' : 'reserved'}">${esc(state.active ? t('setup_hud_ready') : t('setup_draft'))}</span>
+      </div>
+      ${body}
+      ${missing}
+      <div class="sh-legend">${['hostess', 'waiter', 'seat', 'spot', 'manager', 'table'].map((k) => `<span><i style="${setupStyle(k)}"></i>${esc(k === 'table' ? t('setup_legend_table') : t('setup_tool_' + k))}</span>`).join('')}</div>
+      <div class="sh-note">${esc(t('setup_numbers'))}</div>`;
+    el.hidden = false;
+  }
+
+  function setupCheck(ok, label, value, required, warn) {
+    const cls = ok ? 'ok' : (required ? 'missing' : 'optional');
+    return `<li class="setup-check ${cls}"><span class="c-mark">${ok ? svgIcon('check') : ''}</span><span class="c-label">${esc(label)}</span>
+      <span class="c-value">${value !== undefined && value !== null ? esc(value) : ''}</span><span class="c-req">${esc(t(required ? 'setup_required' : 'setup_optional'))}</span>
+      ${warn ? `<span class="c-warn">${esc(warn)}</span>` : ''}</li>`;
+  }
+
+  function setupTableEditor(table, busyIds) {
+    const busyHere = busyIds.includes(table.id);
+    const seatIndex = S.setupSeat && S.setupSeat <= table.seats.length ? S.setupSeat : table.seats.length;
+    const disabled = busy('setup') ? 'disabled' : '';
+    const height = Math.round((table.seatZ || 0) * 100);
+    const seats = table.seats.length
+      ? `<div class="seat-chips">${table.seats.map((_, i) => `<button type="button" class="chip ${i + 1 === seatIndex ? 'active' : ''}" data-action="setupSeatPick" data-seat="${i + 1}">${esc(t('setup_seat_n', { n: i + 1 }))}</button>`).join('')}</div>
+         <div class="actions">
+           <button class="btn sm outline-gold" type="button" data-action="setupTestSit" data-seat="${seatIndex}" ${disabled}>${esc(t('setup_test_sit'))}</button>
+           <button class="btn sm" type="button" data-action="setupNudge" data-forward="0.05" data-seat="${seatIndex}" ${disabled}>${esc(t('setup_nudge_in'))}</button>
+           <button class="btn sm" type="button" data-action="setupNudge" data-forward="-0.05" data-seat="${seatIndex}" ${disabled}>${esc(t('setup_nudge_out'))}</button>
+           <button class="btn sm" type="button" data-action="setupNudge" data-turn="15" data-seat="${seatIndex}" ${disabled}>${esc(t('setup_turn_left'))}</button>
+           <button class="btn sm" type="button" data-action="setupNudge" data-turn="-15" data-seat="${seatIndex}" ${disabled}>${esc(t('setup_turn_right'))}</button>
+         </div>`
+      : `<div class="notice">${esc(t('setup_hint_seat'))}</div>`;
+    return `
+      <div class="card gold-edge setup-editor">
+        <div class="se-head">
+          <span class="se-title">${esc(table.label)}</span>
+          ${table.vip ? '<span class="vip-mark">VIP</span>' : ''}
+          ${busyHere ? `<span class="status occupied">${esc(t('setup_busy_tag'))}</span>` : ''}
+        </div>
+        <div class="se-row">
+          <label class="se-label" for="setupLabel">${esc(t('setup_table_name'))}</label>
+          <div class="se-name">
+            <input class="input" id="setupLabel" maxlength="24" value="${esc(table.label)}">
+            <button class="btn sm" type="button" data-action="setupRename" ${disabled}>${esc(t('setup_save_name'))}</button>
+          </div>
+        </div>
+        <div class="se-row se-inline">
+          <button type="button" class="chip ${table.vip ? 'active' : ''}" data-action="setupVip" ${disabled}>${esc(t('setup_vip'))}</button>
+          <div class="se-height">
+            <span>${esc(t('setup_seat_height'))}</span>
+            <span class="stepper">
+              <button type="button" data-action="setupSeatZ" data-delta="0.05" ${disabled}>+</button>
+              <span>${esc(t('setup_cm', { n: (height > 0 ? '+' : '') + height }))}</span>
+              <button type="button" data-action="setupSeatZ" data-delta="-0.05" ${disabled}>−</button>
+            </span>
+            <span class="faint small">${esc(t('setup_seat_height_hint'))}</span>
+          </div>
+        </div>
+        <div class="se-row">
+          <div class="se-label">${esc(t('setup_seats'))} · <span class="num">${table.seats.length}</span> · ${esc(t('setup_spots_n', { n: table.spots.length }))}</div>
+          ${table.seats.length ? `<div class="faint small">${esc(t('setup_seat_pick'))}</div>` : ''}
+          ${seats}
+        </div>
+        <div class="actions se-danger">
+          <button class="btn sm ghost" type="button" data-action="setupDo" data-op="seat_remove" ${table.seats.length ? '' : 'disabled'} ${disabled}>${esc(t('setup_remove_seat'))}</button>
+          <button class="btn sm ghost" type="button" data-action="setupDo" data-op="spot_remove" ${table.spots.length ? '' : 'disabled'} ${disabled}>${esc(t('setup_remove_spot'))}</button>
+          <button class="btn sm danger" type="button" data-action="setupRemoveTable" ${disabled}>${esc(t('setup_remove_table'))}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderSetup() {
+    const setup = S.setup || normSetup({});
+    const state = setupData();
+    const layout = state.layout;
+    const tool = setup.tool;
+    const selected = setupTable(setup.tableId);
+    const disabled = busy('setup') ? 'disabled' : '';
+    const needsTable = (tool === 'seat' || tool === 'spot') && !selected;
+    const usable = layout.tables.filter((tb) => tb.seats.length > 0).length;
+    const spots = layout.tables.reduce((sum, tb) => sum + tb.spots.length, 0);
+
+    const toolCards = SETUP_TOOLS.map((k) => `
+      <button type="button" class="tool ${tool === k ? 'active' : ''}" data-action="setupTool" data-tool="${k}" style="${setupStyle(k)}">
+        <span class="tool-icon">${setupIcon(k)}</span>
+        <span class="tool-name">${esc(t('setup_tool_' + k))}</span>
+      </button>`).join('');
+
+    const tableRows = layout.tables.length ? layout.tables.map((tb) => `
+      <button type="button" class="setup-table ${selected && selected.id === tb.id ? 'active' : ''}" data-action="setupTable" data-id="${tb.id}">
+        <span class="st-icon">${setupIcon('table')}</span>
+        <span class="st-name">${esc(tb.label)}</span>
+        ${tb.vip ? '<span class="vip-mark">VIP</span>' : '<span></span>'}
+        <span class="st-meta">${tb.seats.length ? esc(t('setup_seats_n', { n: tb.seats.length })) : `<span class="warn-text">${esc(t('setup_no_seats_tag'))}</span>`} · ${esc(t('setup_spots_n', { n: tb.spots.length }))}
+          ${state.busy.includes(tb.id) ? `<span class="status occupied">${esc(t('setup_busy_tag'))}</span>` : ''}</span>
+      </button>`).join('') : `<div class="empty small">${esc(t('setup_tables_empty'))}</div>`;
+
+    const waiterRows = layout.waiters.length ? layout.waiters.map((_, i) => `
+      <li><span><i class="dot-c" style="${setupStyle('waiter')}"></i>${esc(t('setup_waiter_n', { n: i + 1 }))}</span>
+        <button class="btn sm ghost" type="button" data-action="setupDo" data-op="waiter_remove" data-index="${i + 1}" ${disabled}>${esc(t('setup_remove'))}</button></li>`).join('')
+      : `<li class="faint small">${esc(t('setup_waiters_empty'))}</li>`;
+
+    return `
+      <div class="setup-layout">
+        <section class="setup-main">
+          <div class="setup-intro">
+            <h2 class="h-display">${esc(t('setup_title'))}</h2>
+            <p class="muted">${esc(t('setup_sub', { key: setup.keys.place }))}</p>
+          </div>
+          <h3 class="h-section">1 · ${esc(t('setup_step_tool'))}</h3>
+          <div class="tool-grid">${toolCards}</div>
+          <div class="card place-card" style="${setupStyle(tool)}">
+            <div class="pc-text">
+              <div class="pc-name">${esc(setupToolLabel(tool))}</div>
+              <div class="muted small">${esc(t('setup_hint_' + tool))}</div>
+              ${needsTable ? `<div class="warn-text small">${esc(t('setup_need_table'))}</div>` : ''}
+            </div>
+            <div class="pc-actions">
+              <button class="btn gold" type="button" data-action="setupPlace" ${needsTable || busy('setup') ? 'disabled' : ''}>${busy('setup') ? spinner() : ''}${esc(t('setup_place_now'))}</button>
+              <span class="faint small">${esc(t('setup_place_or_key', { key: setup.keys.place }))}</span>
+            </div>
+          </div>
+          <h3 class="h-section">2 · ${esc(t('setup_step_tables'))}</h3>
+          <div class="setup-tables">
+            ${tableRows}
+            <button type="button" class="setup-table add" data-action="setupDo" data-op="table_add" ${disabled}>+ ${esc(t('setup_table_new'))}</button>
+          </div>
+          ${selected ? setupTableEditor(selected, state.busy) : ''}
+        </section>
+        <aside class="setup-side">
+          <div class="card setup-status ${state.active ? 'live' : 'draft'}">
+            <div class="ss-head">
+              <span class="ss-title">${esc(t('setup_status'))}</span>
+              <span class="status ${state.active ? 'free' : 'reserved'}">${esc(state.active ? t('setup_active') : t('setup_draft'))}</span>
+            </div>
+            <p class="muted small" style="margin:.4rem 0 .8rem">${esc(state.active ? t('setup_active_desc') : t('setup_draft_desc'))}</p>
+            <ul class="setup-checklist">
+              ${setupCheck(!!layout.hostess, t('setup_check_hostess'), null, true)}
+              ${setupCheck(layout.waiters.length > 0, t('setup_check_waiters'), layout.waiters.length, true)}
+              ${setupCheck(usable > 0, t('setup_check_tables'), usable, true)}
+              ${setupCheck(spots > 0, t('setup_check_spots'), spots, false, spots > 0 ? '' : t('setup_spots_warn'))}
+              ${setupCheck(!!layout.manager, t('setup_check_manager'), null, false)}
+            </ul>
+            ${layout.manager ? `<button class="btn sm ghost" type="button" data-action="setupDo" data-op="manager_clear" ${disabled}>${esc(t('setup_remove'))} · ${esc(t('setup_check_manager'))}</button>` : ''}
+          </div>
+          <div class="card">
+            <h3 class="h-section">${esc(t('setup_waiters'))}</h3>
+            <ul class="member-list">${waiterRows}</ul>
+          </div>
+          <div class="card">
+            <h3 class="h-section">${esc(t('setup_furniture'))}</h3>
+            <div class="option-grid">
+              <button type="button" class="option ${layout.furniture ? '' : 'active'}" data-action="setupDo" data-op="furniture" data-enabled="0" ${disabled}>${esc(t('setup_furniture_map'))}<span class="o-sub">${esc(t('setup_furniture_map_sub'))}</span></button>
+              <button type="button" class="option ${layout.furniture ? 'active' : ''}" data-action="setupDo" data-op="furniture" data-enabled="1" ${disabled}>${esc(t('setup_furniture_spawn'))}<span class="o-sub">${esc(t('setup_furniture_spawn_sub'))}</span></button>
+            </div>
+          </div>
+          ${state.saved === false ? `<div class="notice error">${esc(t('setup_not_saved', { file: state.file || 'data/layout.json' }))}</div>` : `<div class="notice">${esc(t('setup_saved', { file: state.file || 'data/layout.json' }))}</div>`}
+          ${state.oneSync === false ? `<div class="notice warn">${esc(t('setup_no_onesync'))}</div>` : ''}
+          <div class="setup-buttons">
+            <button class="btn gold block" type="button" data-action="close">${esc(t('setup_close'))}</button>
+            <button class="btn outline-gold block" type="button" data-action="setupExport" ${state.active ? '' : 'disabled'} ${disabled}>${esc(t('setup_export'))}</button>
+            <div class="actions">
+              <button class="btn ghost" type="button" data-action="setupExit">${esc(t('setup_exit'))}</button>
+              <button class="btn danger" type="button" data-action="setupReset" ${layout.hostess || layout.waiters.length || layout.tables.length ? '' : 'disabled'} ${disabled}>${esc(t('setup_reset'))}</button>
+            </div>
+          </div>
+        </aside>
+      </div>`;
+  }
 
   function renderModal() {
     const m = S.modal;
@@ -1470,7 +1736,91 @@
     staffRestock: (el) => staffAction({ action: 'restock', productId: el.dataset.id || undefined }),
     staffBusiness: (el) => staffAction({ action: 'business', open: el.dataset.open === '1' }),
     logCategory: (el) => { S.logCategory = el.dataset.cat || null; S.logs = null; render(); },
+    setupTool: (el) => {
+      if (!S.setup) return;
+      S.setup.tool = el.dataset.tool;
+      post('setupSelect', { tool: S.setup.tool });
+      render();
+    },
+    setupTable: (el) => {
+      if (!S.setup) return;
+      S.setup.tableId = Number(el.dataset.id);
+      S.setupSeat = null;
+      S.setupSeatTable = S.setup.tableId;
+      post('setupSelect', { tableId: S.setup.tableId });
+      render();
+    },
+    setupPlace: () => call('setupPlace', {}, { busy: 'setup' }),
+    setupDo: (el) => {
+      const payload = { action: el.dataset.op, tableId: S.setup && S.setup.tableId };
+      if (el.dataset.index) payload.index = Number(el.dataset.index);
+      if (el.dataset.enabled) payload.enabled = el.dataset.enabled === '1';
+      return setupAction(payload);
+    },
+    setupRename: () => {
+      const input = $('#setupLabel');
+      if (input) setupAction({ action: 'table_update', tableId: S.setup.tableId, label: input.value });
+    },
+    setupVip: () => {
+      const table = setupTable(S.setup && S.setup.tableId);
+      if (table) setupAction({ action: 'table_update', tableId: table.id, vip: !table.vip });
+    },
+    setupSeatZ: (el) => {
+      const table = setupTable(S.setup && S.setup.tableId);
+      if (!table) return;
+      const value = Math.round(((table.seatZ || 0) + Number(el.dataset.delta)) * 100) / 100;
+      setupAction({ action: 'table_update', tableId: table.id, seatZ: Math.max(-0.6, Math.min(0.6, value)) });
+    },
+    setupSeatPick: (el) => { S.setupSeat = Number(el.dataset.seat); render(); },
+    setupNudge: (el) => {
+      const payload = { action: 'seat_nudge', tableId: S.setup.tableId, index: Number(el.dataset.seat) };
+      if (el.dataset.forward) payload.forward = Number(el.dataset.forward);
+      if (el.dataset.turn) payload.turn = Number(el.dataset.turn);
+      setupAction(payload);
+    },
+    setupTestSit: (el) => {
+      post('setupTestSit', { tableId: S.setup.tableId, seat: Number(el.dataset.seat) });
+      hide();
+    },
+    setupRemoveTable: () => {
+      const table = setupTable(S.setup && S.setup.tableId);
+      if (!table) return;
+      S.modal = {
+        type: 'confirm',
+        danger: true,
+        title: t('setup_remove_table'),
+        html: esc(t('setup_remove_table_confirm', { table: table.label })),
+        yes: t('setup_remove_table'),
+        onYes: () => setupAction({ action: 'table_remove', tableId: table.id }),
+      };
+      renderModal();
+    },
+    setupReset: () => {
+      S.modal = {
+        type: 'confirm',
+        danger: true,
+        title: t('setup_reset'),
+        html: esc(t('setup_reset_confirm')),
+        yes: t('setup_reset'),
+        onYes: () => setupAction({ action: 'reset' }),
+      };
+      renderModal();
+    },
+    setupExport: async () => {
+      const result = await setupAction({ action: 'export' });
+      if (result.ok && result.data && result.data.text) copyText(result.data.text);
+    },
+    setupExit: () => {
+      post('setupExit', {});
+      if (S.setup) S.setup.active = false;
+      hide();
+    },
   };
+
+  // Every edit goes through Lua to the server; the new state comes back as a 'setup' message too.
+  function setupAction(payload) {
+    return call('setupAction', payload, { busy: 'setup' });
+  }
 
   async function doPay() {
     const bill = S.bill;
@@ -1531,6 +1881,7 @@
       return;
     }
     if (event.key === 'Enter' && S.modal && S.modal.type === 'reserve') actions.reserveConfirm();
+    if (event.key === 'Enter' && event.target.id === 'setupLabel') actions.setupRename();
   });
 
   // ── timers ──────────────────────────────────────────────

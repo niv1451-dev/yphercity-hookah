@@ -4,6 +4,8 @@
      index.html?panel=menu            (default)
      index.html?panel=host&scenario=new
      index.html?panel=orders | bill | staff
+     index.html?panel=setup              (placement tool, empty)
+     index.html?panel=setup&layout=full  (placement tool with a finished layout)
 */
 (function () {
   'use strict';
@@ -155,6 +157,85 @@
   const ok = (data, message) => ({ ok: true, data, message });
   const fail = (code, message) => ({ ok: false, code, message });
 
+  // ── placement tool (/hookahsetup) ──
+  const B = { x: -1200, y: -880, z: 13 };
+  const SETUP = { active: true, tool: 'hostess', tableId: null, sitting: false, keys: { place: 'E', menu: 'F7' } };
+  const setupState = { layout: { version: 1, nextId: 1, furniture: false, waiters: [], tables: [] }, active: false, missing: [], busy: [], file: 'data/layout.json', saved: true, oneSync: true };
+  const TOOL_ACTION = { hostess: 'hostess', waiter: 'waiter_add', seat: 'seat_add', spot: 'spot_add', manager: 'manager' };
+  let spotCounter = 0;
+  const here = (h) => { spotCounter += 1; return [B.x + (spotCounter % 6) * 1.4, B.y + Math.floor(spotCounter / 6) * 1.4, B.z, h || 0]; };
+  function setupRefresh() {
+    const L = setupState.layout;
+    const missing = [];
+    if (!L.hostess) missing.push('hostess');
+    if (!L.waiters.length) missing.push('waiter');
+    if (!L.tables.some((t) => t.seats.length)) missing.push('table');
+    const was = setupState.active;
+    setupState.missing = missing;
+    setupState.active = missing.length === 0;
+    return !was && setupState.active;
+  }
+  function setupPush() { dispatch('setup', Object.assign({}, SETUP, { setup: setupState })); }
+  function setupDo(data) {
+    const L = setupState.layout;
+    const table = L.tables.find((t) => t.id === data.tableId);
+    const needTable = ['table_remove', 'table_update', 'seat_add', 'seat_remove', 'seat_nudge', 'spot_add', 'spot_remove'];
+    if (needTable.includes(data.action) && !table) return fail('setup_select_table', 'קודם בחרו שולחן בתפריט (או צרו שולחן חדש).');
+    if (table && setupState.busy.includes(table.id) && data.action !== 'table_update') return fail('setup_table_busy', `לא ניתן לשנות כרגע: ${table.label} בשימוש (יושבים בו לקוחות או שהוא בניקיון). נסו שוב כשהוא פנוי.`);
+    let message;
+    switch (data.action) {
+      case 'hostess': L.hostess = here(180); message = 'המארחת תעמוד כאן.'; break;
+      case 'waiter_add': L.waiters.push(here(90)); message = `עמדת מלצר ${L.waiters.length} נוספה כאן.`; break;
+      case 'waiter_remove': L.waiters.splice((data.index || L.waiters.length) - 1, 1); message = `עמדת מלצר ${data.index} נמחקה.`; break;
+      case 'manager': L.manager = here().slice(0, 3); message = 'עמדת הניהול תהיה כאן.'; break;
+      case 'manager_clear': delete L.manager; message = 'עמדת הניהול הוסרה.'; break;
+      case 'table_add': {
+        const id = L.nextId++;
+        L.tables.push({ id, label: 'שולחן ' + id, vip: false, seatZ: 0, seats: [], spots: [] });
+        SETUP.tableId = id;
+        SETUP.tool = 'seat';
+        message = `שולחן ${id} נוסף — עכשיו הציבו את הכיסאות שלו.`;
+        break;
+      }
+      case 'table_remove': L.tables = L.tables.filter((t) => t !== table); SETUP.tableId = null; message = `${table.label} נמחק.`; break;
+      case 'table_update':
+        if (data.label !== undefined) table.label = String(data.label).slice(0, 24);
+        if (data.vip !== undefined) table.vip = !!data.vip;
+        if (data.seatZ !== undefined) table.seatZ = data.seatZ;
+        message = `${table.label} עודכן.`;
+        break;
+      case 'seat_add': table.seats.push(here(0)); message = `כיסא ${table.seats.length} נוסף ל${table.label}.`; break;
+      case 'seat_remove': table.seats.pop(); message = `הכיסא האחרון של ${table.label} נמחק.`; break;
+      case 'seat_nudge': message = `כיסא ${data.index} של ${table.label} הוזז.`; break;
+      case 'spot_add': table.spots.push(here()); message = `מקום לנרגילה ${table.spots.length} נוסף ל${table.label}.`; break;
+      case 'spot_remove': table.spots.pop(); message = `מקום הנרגילה האחרון של ${table.label} נמחק.`; break;
+      case 'furniture': L.furniture = !!data.enabled; message = L.furniture ? 'ייווצרו שולחנות וכיסאות בנקודות שהצבת.' : 'לא ייווצרו רהיטים — משתמשים ברהיטים של המפה.'; break;
+      case 'reset':
+        setupState.layout = { version: 1, nextId: 1, furniture: false, waiters: [], tables: [] };
+        SETUP.tableId = null;
+        message = 'ההצבה נמחקה — העסק חזר למיקומים שב-config.lua.';
+        break;
+      default: return fail('invalid_request', 'בקשה לא תקינה.');
+    }
+    if (setupRefresh()) message = `ההצבה הושלמה — ${D.business.name} פועל עכשיו כאן!`;
+    setTimeout(setupPush, 10);
+    return ok(Object.assign({}, setupState), message);
+  }
+  if (params.get('layout') === 'full') {
+    const L = setupState.layout;
+    L.hostess = here(180);
+    L.waiters.push(here(90), here(270));
+    L.manager = here().slice(0, 3);
+    [['שולחן הספה', 4, 2, false, -0.1], ['שולחן החלון', 4, 2, false, 0], ['VIP השייח', 6, 3, true, 0], ['בר', 3, 0, false, 0.25]].forEach(([label, seats, spots, vip, seatZ]) => {
+      const id = L.nextId++;
+      L.tables.push({ id, label, vip, seatZ, seats: Array.from({ length: seats }, () => here(0)), spots: Array.from({ length: spots }, () => here()) });
+    });
+    setupState.busy = [2];
+    SETUP.tool = 'seat';
+    SETUP.tableId = 1;
+  }
+  setupRefresh();
+
   async function post(name, data) {
     data = data || {};
     await wait(name === 'pay' || name === 'placeOrder' ? 350 : 60);
@@ -235,6 +316,23 @@
       }
       case 'callWaiter': return ok(null, 'המלצר קיבל את הקריאה.');
       case 'staffOpen': return ok(staff());
+      case 'setupSelect':
+        if (data.tool) SETUP.tool = data.tool;
+        if (data.tableId !== undefined) SETUP.tableId = data.tableId || null;
+        return ok();
+      case 'setupPlace': {
+        const action = TOOL_ACTION[SETUP.tool];
+        if ((SETUP.tool === 'seat' || SETUP.tool === 'spot') && !SETUP.tableId) return fail('setup_select_table', 'קודם בחרו שולחן בתפריט (או צרו שולחן חדש).');
+        return setupDo({ action, tableId: SETUP.tableId });
+      }
+      case 'setupAction':
+        if (data.action === 'export') {
+          if (!setupState.active) return fail('setup_export_incomplete', 'אפשר להעתיק קוד רק אחרי שההצבה הושלמה.');
+          return ok({ text: 'Config.Tables = { -- ' + setupState.layout.tables.length + ' tables }' }, 'הקוד הועתק. אפשר להדביק אותו בסוף config.lua.');
+        }
+        return setupDo(data);
+      case 'setupTestSit': SETUP.sitting = true; setTimeout(setupPush, 10); return ok();
+      case 'setupExit': SETUP.active = false; setTimeout(setupPush, 10); return ok();
       case 'staffAction': {
         if (data.action === 'sales') {
           const days = [];
@@ -276,10 +374,11 @@
   }
 
   CCH.setPost(post);
-  window.CCH_PREVIEW = { dispatch, post, state: S, me, staff, tables };
+  window.CCH_PREVIEW = { dispatch, post, state: S, me, staff, tables, setup: SETUP, setupState };
 
   post('ready').then(() => {
-    dispatch('open', { panel: startPanel, context: startPanel === 'bill' ? { mode: 'table' } : {}, me: me(), tables });
+    const context = startPanel === 'bill' ? { mode: 'table' } : startPanel === 'setup' ? Object.assign({}, SETUP, { setup: setupState }) : {};
+    dispatch('open', { panel: startPanel, context, me: me(), tables });
     if (startPanel === 'staff') dispatch('staff', staff());
   });
 })();

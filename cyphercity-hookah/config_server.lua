@@ -18,7 +18,7 @@ ServerConfig.Logging = {
         enabled = false,
         convar = 'cyphercity_hookah_webhook',
         username = 'המקום של השייח',
-        -- אילו קטגוריות לשלוח: order, payment, table, hookah, staff, security, system
+        -- אילו קטגוריות לשלוח: order, payment, table, hookah, staff, security, setup, system
         categories = { payment = true, staff = true, security = true },
     },
 }
@@ -39,6 +39,13 @@ ServerConfig.Persistence = {
 ServerConfig.StaffIdentifiers = {
 }
 
--- הרשאת ACE לכלי האבחון ולפקודת הקואורדינטות:
+-- הרשאת ACE לכלי ההצבה במשחק (/hookahsetup), לכלי האבחון ולפקודת הקואורדינטות:
 --     add_ace group.admin cyphercity.hookah.admin allow
 ServerConfig.AdminAce = 'cyphercity.hookah.admin'
+
+-- ההצבה שנעשית במשחק עם /hookahsetup נשמרת כאן (בתוך תיקיית המשאב).
+-- כל עוד הקובץ קיים ושלם, הוא קובע את המיקומים במקום config.lua.
+-- כדי לחזור למיקומים של config.lua: "איפוס הצבה" בתפריט, או מחיקת הקובץ והפעלה מחדש.
+ServerConfig.Layout = {
+    file = 'data/layout.json',
+}

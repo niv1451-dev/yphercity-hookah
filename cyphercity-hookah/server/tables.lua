@@ -23,6 +23,54 @@ local function sortedMembers(t)
     return list
 end
 
+-- Static part of a table, built from a Config.Tables entry (nil + error when invalid).
+local function buildTable(def, index, byId, errors)
+    local id = Utils.ToInt(def.id)
+    if not id then
+        errors[#errors + 1] = ('Config.Tables[%d] has no numeric id'):format(index)
+    elseif byId[id] then
+        errors[#errors + 1] = ('Duplicate table id %d'):format(id)
+    elseif type(def.seats) ~= 'table' or #def.seats == 0 then
+        errors[#errors + 1] = ('Table %d has no seats'):format(id)
+    elseif not def.center then
+        errors[#errors + 1] = ('Table %d has no center'):format(id)
+    else
+        local capacity = Utils.ToInt(def.capacity) or #def.seats
+        if capacity > #def.seats then
+            errors[#errors + 1] = ('Table %d: capacity %d is larger than its %d seats — using %d'):format(id, capacity, #def.seats, #def.seats)
+            capacity = #def.seats
+        end
+        return {
+            id = id,
+            label = def.label or ('#' .. id),
+            capacity = math.max(1, capacity),
+            vip = def.vip == true,
+            center = def.center,
+            hookahSpots = #(def.hookahSpots or {}),
+            seatCount = #def.seats,
+            signature = Layout.Signature(def),
+        }
+    end
+    return nil
+end
+
+local function newTable(static, session)
+    static.status = 'free'
+    static.owner = nil
+    static.ownerName = nil
+    static.members = {}
+    static.memberOrder = {}
+    static.seats = {}
+    static.partySize = 0
+    static.session = session or 0  -- increases every time a new party gets the table
+    static.updatedAt = now()
+    return static
+end
+
+-- Last session number of tables that were removed by a layout edit, so a table
+-- that comes back under the same id never mixes its parties with old orders.
+local retiredSessions = {}
+
 function Tables.Init()
     settings = Config.TableSettings
     Tables.list, Tables.byId = {}, {}
@@ -30,43 +78,60 @@ function Tables.Init()
     local errors = {}
 
     for index, def in ipairs(Config.Tables or {}) do
-        local id = Utils.ToInt(def.id)
-        if not id then
-            errors[#errors + 1] = ('Config.Tables[%d] has no numeric id'):format(index)
-        elseif Tables.byId[id] then
-            errors[#errors + 1] = ('Duplicate table id %d'):format(id)
-        elseif type(def.seats) ~= 'table' or #def.seats == 0 then
-            errors[#errors + 1] = ('Table %d has no seats'):format(id)
-        elseif not def.center then
-            errors[#errors + 1] = ('Table %d has no center'):format(id)
-        else
-            local capacity = Utils.ToInt(def.capacity) or #def.seats
-            if capacity > #def.seats then
-                errors[#errors + 1] = ('Table %d: capacity %d is larger than its %d seats — using %d'):format(id, capacity, #def.seats, #def.seats)
-                capacity = #def.seats
-            end
-            local t = {
-                id = id,
-                label = def.label or ('#' .. id),
-                capacity = math.max(1, capacity),
-                vip = def.vip == true,
-                center = def.center,
-                hookahSpots = #(def.hookahSpots or {}),
-                seatCount = #def.seats,
-                status = 'free',
-                owner = nil,
-                ownerName = nil,
-                members = {},
-                memberOrder = {},
-                seats = {},
-                partySize = 0,
-                session = 0,        -- increases every time a new party gets the table
-                updatedAt = now(),
-            }
+        local static = buildTable(def, index, Tables.byId, errors)
+        if static then
+            local t = newTable(static, retiredSessions[static.id])
             Tables.list[#Tables.list + 1] = t
-            Tables.byId[id] = t
+            Tables.byId[t.id] = t
         end
     end
+    return errors
+end
+
+-- Tables that are in use (anything but free) and would be changed or removed
+-- if Config.Tables became `defs`. Their parties must never be disturbed.
+function Tables.LayoutConflicts(defs)
+    local byId = {}
+    for _, def in ipairs(defs or {}) do byId[Utils.ToInt(def.id) or -1] = def end
+    local conflicts = {}
+    for _, t in ipairs(Tables.list) do
+        if t.status ~= 'free' then
+            local def = byId[t.id]
+            if not def or Layout.Signature(def) ~= t.signature then conflicts[#conflicts + 1] = t.label end
+        end
+    end
+    return conflicts
+end
+
+-- Rebuilds the table list after the layout changed. Tables that keep their id
+-- keep their state (party, session, status); only labels, VIP and positions are
+-- refreshed. Callers check Tables.LayoutConflicts first, so tables in use are
+-- never changed here.
+function Tables.Reload()
+    local previous = Tables.byId
+    local list, byId, errors = {}, {}, {}
+    for index, def in ipairs(Config.Tables or {}) do
+        local static = buildTable(def, index, byId, errors)
+        if static then
+            local t = previous[static.id]
+            if t then
+                for key, value in pairs(static) do t[key] = value end
+            else
+                t = newTable(static, retiredSessions[static.id])
+            end
+            list[#list + 1] = t
+            byId[t.id] = t
+        end
+    end
+    for id, t in pairs(previous) do
+        if not byId[id] then
+            retiredSessions[id] = t.session
+            Hookah.RemoveByTable(id, 'layout_changed')
+            for _, entry in pairs(invites) do entry[id] = nil end
+        end
+    end
+    Tables.list, Tables.byId = list, byId
+    Sync.Tables()
     return errors
 end
 
@@ -442,7 +507,7 @@ function Tables.Tick()
             -- a release earlier in this loop can empty the table
             if member then
                 local position = Security.GetCoords(src)
-                local away = position and not Utils.WithinRange(position, Config.Venue.center, settings.awayDistance or 45.0, 30.0)
+                local away = position and not Utils.WithinRange(position, Config.Venue.center, Security.AwayDistance(), 30.0)
                 if not away then
                     member.awaySince = nil
                 else

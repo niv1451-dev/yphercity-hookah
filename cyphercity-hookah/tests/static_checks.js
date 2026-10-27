@@ -110,7 +110,10 @@ check('NUI translations: Hebrew and English have the same keys', [
 ]);
 const nuiKeys = new Set([...all(/\bt\('(\w+)'/g, appJs), ...all(/data-t="(\w+)"/g, html), ...all(/data-t-title="(\w+)"/g, html)]);
 const families = {
-  tab_: ['host', 'menu', 'orders', 'bill', 'staff'],
+  tab_: ['host', 'menu', 'orders', 'bill', 'staff', 'setup'],
+  setup_tool_: ['hostess', 'waiter', 'seat', 'spot', 'manager'],
+  setup_hint_: ['hostess', 'waiter', 'seat', 'spot', 'manager'],
+  setup_missing_: ['hostess', 'waiter', 'table'],
   status_: ['free', 'reserved', 'occupied', 'cleaning'],
   order_: ['new', 'preparing', 'serving', 'completed', 'cancelled'],
   pay_: ['unpaid', 'processing', 'paid', 'void', 'refunded', 'refund_pending', 'free'],
@@ -119,7 +122,7 @@ const families = {
   staff_: ['orders', 'tables', 'sales', 'stock', 'logs', 'business'],
   role_: ['manager', 'cashier', 'waiter', 'host'],
   mode_: ['auto', 'staff', 'hybrid'],
-  log_: ['order', 'payment', 'table', 'hookah', 'staff', 'security', 'system'],
+  log_: ['order', 'payment', 'table', 'hookah', 'staff', 'security', 'setup', 'system'],
 };
 Object.entries(families).forEach(([prefix, names]) => names.forEach((n) => nuiKeys.add(prefix + n)));
 // tags shown as filter chips come from config.lua

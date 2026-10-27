@@ -118,6 +118,7 @@ function Diagnostics.Report()
     for _, message in ipairs(Catalog.warnings) do add('  warn: %s', message) end
     for _, message in ipairs(Diagnostics.ValidateConfig()) do add('  %s: %s', message.level, message.text) end
 
+    add(Setup.Report())
     if Server.ready then
         local occupied, active = 0, 0
         for _, t in ipairs(Tables.list) do if t.status ~= 'free' then occupied = occupied + 1 end end

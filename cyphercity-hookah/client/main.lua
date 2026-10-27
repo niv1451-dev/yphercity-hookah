@@ -11,12 +11,19 @@ State = {
     me = {},
     staff = nil,
     inVenue = false,
+    layoutRevision = nil,
 }
 
 Client = {}
 
 local tableDefs = {}
-for _, def in ipairs(Config.Tables or {}) do tableDefs[def.id] = def end
+
+-- Index of Config.Tables by id (rebuilt when an in-game layout is applied).
+function Client.RebuildDefs()
+    tableDefs = {}
+    for _, def in ipairs(Config.Tables or {}) do tableDefs[def.id] = def end
+end
+Client.RebuildDefs()
 
 function Client.TableDef(id)
     return tableDefs[id]
@@ -38,6 +45,7 @@ function Client.Bootstrap()
     State.catalog = data.catalog
     State.tables = data.tables or {}
     State.hookahs = data.hookahs or {}
+    Client.ApplyLayout(data.layout)
     -- through ApplyState so a seat the server no longer knows (resource restart) is cleared
     Client.ApplyState(data.me or {})
     Bridge.framework = data.settings.framework
@@ -124,22 +132,24 @@ local function enterVenue()
     Furniture.Spawn()
     Interactions.Register()
     HookahClient.Enter()
-    Target.SetActive(true)
+    -- no interaction prompts while an admin is placing points (same key)
+    Target.SetActive(not Placement.active)
     if not State.bootstrapped then CreateThread(Client.Bootstrap) end
 end
 
-local function leaveVenue()
+local function leaveVenue(keepUi)
     State.inVenue = false
     Target.SetActive(false)
     Interactions.Unregister()
     HookahClient.Leave()
     Furniture.Despawn()
     Peds.DespawnAll()
-    if UI.open then UI.Close() end
+    if UI.open and not keepUi then UI.Close() end
 end
 
 local blip
 local function createBlip()
+    if blip then RemoveBlip(blip) blip = nil end
     local settings = Config.Blip
     if not settings or not settings.enabled then return end
     local coords = settings.coords or Config.Venue.center
@@ -151,6 +161,26 @@ local function createBlip()
     BeginTextCommandSetBlipName('STRING')
     AddTextComponentSubstringPlayerName(settings.label or 'Hookah Lounge')
     EndTextCommandSetBlipName(blip)
+end
+
+-- The in-game layout (/hookahsetup) changed, or arrived with the bootstrap:
+-- everything that was spawned at the old positions is removed; the venue loop
+-- spawns it again at the new positions within a second.
+function Client.ApplyLayout(payload)
+    if type(payload) ~= 'table' or payload.revision == State.layoutRevision then return end
+    State.layoutRevision = payload.revision
+    if State.inVenue then leaveVenue(true) end
+    Layout.Apply(payload.layout or nil)
+    Client.RebuildDefs()
+    createBlip()
+end
+
+RegisterNetEvent('cyphercity-hookah:client:layout', function(payload)
+    Client.ApplyLayout(payload)
+end)
+
+function Client.SetPromptsActive(active)
+    Target.SetActive(active and State.inVenue)
 end
 
 CreateThread(function()
@@ -166,8 +196,8 @@ CreateThread(function()
         Wait(5000)
     end
 
-    local render = Config.Venue.renderDistance or 70.0
     while true do
+        local render = Config.Venue.renderDistance or 70.0
         local position = GetEntityCoords(PlayerPedId())
         local distance = #(position - Config.Venue.center)
         if not State.inVenue and distance <= render then
@@ -212,6 +242,7 @@ AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     if UI.open then SetNuiFocus(false, false) end
     Seat.StandLocal()
+    Placement.Stop()
     Interactions.Unregister()
     HookahClient.Leave()
     Furniture.Despawn()

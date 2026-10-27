@@ -8,7 +8,7 @@ globals = {
     'Framework', 'Notify', 'Target', 'Inventory', 'Banking', 'Logger', 'Security', 'Staff',
     'Persistence', 'Sync', 'Tables', 'Hookah', 'Orders', 'Payments', 'Diagnostics', 'Server',
     'Business', 'UI', 'State', 'Client', 'ClientUtil', 'Peds', 'Furniture', 'Seat',
-    'HookahClient', 'Consume', 'Interactions',
+    'HookahClient', 'Consume', 'Interactions', 'Layout', 'Setup', 'Placement',
 }
 
 -- Lower-case globals provided by the FiveM Lua runtime
