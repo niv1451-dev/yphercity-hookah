@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CypherCity Hookah Lounge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="app" hidden>
+    <div class="backdrop"></div>
+    <section class="frame" role="dialog" aria-modal="true" aria-labelledby="brandTitle">
+      <header class="frame-header">
+        <div class="brand">
+          <img class="brand-logo" src="assets/icons/logo.svg" alt="">
+          <div class="brand-text">
+            <div class="brand-latin" id="brandTitle">CYPHERCITY</div>
+            <div class="brand-sub" data-t="brand_sub"></div>
+          </div>
+        </div>
+        <nav class="tabs" id="tabs" role="tablist"></nav>
+        <div class="header-meta">
+          <span class="badge" id="tableBadge"></span>
+          <button class="icon-btn" id="closeBtn" type="button" data-action="close" data-t-title="close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </header>
+      <main class="frame-body" id="panel"></main>
+      <footer class="frame-footer">
+        <span data-t="server_note"></span>
+        <span class="kbd-hint"><kbd>ESC</kbd> <span data-t="esc_hint"></span></span>
+      </footer>
+    </section>
+    <div class="modal-layer" id="modal" hidden></div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="prompt" id="prompt" hidden><kbd>E</kbd><span class="prompt-label"></span><span class="prompt-more" hidden>⋯</span></div>
+  <div class="context" id="context" hidden></div>
+  <div class="dev-banner" id="devBanner" hidden></div>
+
+  <script src="locale.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
