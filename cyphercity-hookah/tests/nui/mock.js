@@ -69,7 +69,7 @@
       hookahs: S.hookahs.map((h) => Object.assign({}, h, { remaining: Math.max(0, Math.floor((h.expires - Date.now()) / 1000)) })),
       bill: { personal: unpaid.filter((o) => o.mine !== false).reduce((s, o) => s + o.subtotal, 0), table: unpaid.reduce((s, o) => s + o.subtotal, 0) },
       staffRole: 'manager',
-      perms: ['view_tables', 'reserve_table', 'clean_table', 'seat_guest', 'release_table', 'view_orders', 'update_order', 'cancel_order', 'request_payment', 'view_sales', 'manage_stock', 'toggle_business', 'view_logs'],
+      perms: ['view_tables', 'reserve_table', 'clean_table', 'seat_guest', 'release_table', 'view_orders', 'update_order', 'take_order', 'cancel_order', 'request_payment', 'view_sales', 'manage_stock', 'toggle_business', 'view_logs'],
       businessOpen: S.businessOpen,
     };
   }
@@ -106,6 +106,7 @@
       customer: (opts && opts.customer) || 'נועם כהן', mine: !(opts && opts.customer), lines: priced,
       subtotal: priced.reduce((s, l) => s + l.total, 0), status: (opts && opts.status) || 'new', paymentStatus: 'unpaid',
       created: Date.now() - ((opts && opts.age) || 0) * 1000, auto: true, eta: 40,
+      note: (opts && opts.note) || null, placedBy: (opts && opts.placedBy) || null,
     };
     S.orders.push(order);
     return order;
@@ -147,7 +148,7 @@
     deliver(first);
     S.hookahs[0].expires = Date.now() + 1180 * 1000;
     addOrder([{ id: 'fries', qty: 2 }, { id: 'wings_buffalo', qty: 1 }, { id: 'beer_draft', qty: 2 }], { status: 'preparing', age: 140 });
-    addOrder([{ id: 'edamame_spicy', qty: 1 }, { id: 'arak_grapefruit', qty: 1 }], { status: 'new', age: 25, customer: 'שירה לוי' });
+    addOrder([{ id: 'edamame_spicy', qty: 1 }, { id: 'arak_grapefruit', qty: 1 }], { status: 'new', age: 25, customer: 'שירה לוי', note: 'בלי קרח בערק' });
   }
 
   const ok = (data, message) => ({ ok: true, data, message });
@@ -179,7 +180,7 @@
       case 'invite': return ok(null, 'שלחת הזמנה.');
       case 'placeOrder': {
         if (!Array.isArray(data.lines) || !data.lines.length) return fail('order_empty', 'ההזמנה ריקה.');
-        const order = addOrder(data.lines);
+        const order = addOrder(data.lines, { note: data.note || null });
         progress(order);
         setTimeout(push, 10);
         return ok({ id: order.id, total: order.subtotal }, fill(D.messages.order_placed, { ID: order.id, TOTAL: money(order.subtotal) }));
@@ -259,6 +260,12 @@
           if (order) { order.status = data.status; if (data.status === 'completed') deliver(order); }
         }
         if (data.action === 'business') S.businessOpen = !!data.open;
+        if (data.action === 'order') {
+          if (!Array.isArray(data.lines) || !data.lines.length) return fail('order_empty', 'ההזמנה ריקה.');
+          const order = addOrder(data.lines, { customer: 'אורח בשולחן', placedBy: 'דניאל (מלצר)', note: data.note || null });
+          setTimeout(push, 10);
+          return ok(null, `הזמנה #${order.id} נשלחה למטבח.`);
+        }
         setTimeout(push, 10);
         return ok(null, 'עודכן.');
       }

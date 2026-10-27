@@ -41,6 +41,7 @@ local data = {
         allowTableBill = Config.Payments.allowTableBill,
         tableBillPayer = Config.Payments.tableBillPayer,
         maxPartySize = Config.TableSettings.maxPartySize,
+        hookahRequireSeated = Config.Hookah.requireSeated ~= false,
         allowWithoutTable = Config.Orders.allowWithoutTable == true,
         maxQtyPerLine = Config.Orders.maxQtyPerLine,
         maxItemsPerOrder = Config.Orders.maxItemsPerOrder,

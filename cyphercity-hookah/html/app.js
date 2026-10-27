@@ -25,6 +25,8 @@
     filters: new Set(),
     sort: 'recommended',
     orderAccount: null,
+    note: '',
+    staffOrder: null, // { tableId, label } while a waiter orders for a table
     party: 2,
     bill: null,
     billLoading: false,
@@ -297,6 +299,7 @@
 
   function orderBlocker() {
     if (S.me.businessOpen === false) return 'menu_closed';
+    if (S.staffOrder) return null;
     if (!S.me.tableId && !S.settings.allowWithoutTable) return 'menu_need_table';
     if (S.me.tableId && S.me.tableStatus !== 'occupied') return 'menu_need_seat';
     return null;
@@ -354,6 +357,7 @@
   }
 
   function hide() {
+    if (S.staffOrder) { S.staffOrder = null; S.cart = []; }
     S.open = false;
     S.modal = null;
     app.hidden = true;
@@ -542,6 +546,7 @@
           ${seated ? '' : `<button class="btn gold" type="button" data-action="sit" data-table="${me.tableId}">${esc(t('host_go_sit'))}</button>`}
           <button class="btn outline-gold" type="button" data-action="tab" data-panel="menu">${esc(t('host_open_menu'))}</button>
           ${me.isOwner ? `<button class="btn" type="button" data-action="openInvite">${esc(t('host_invite'))}</button>` : ''}
+          <button class="btn" type="button" data-action="callWaiter">${esc(t('call_waiter'))}</button>
           <button class="btn danger" type="button" data-action="leaveTable" ${busy('leaveTable') ? 'disabled' : ''}>${esc(t('host_leave'))}</button>
         </div>
       </div>`;
@@ -603,6 +608,7 @@
             </select>
             <div class="filters">${filterChips}</div>
           </div>
+          ${S.staffOrder ? `<div style="padding:.8rem 1.2rem 0"><div class="notice staff-order"><span>${esc(t('staff_ordering_for', { table: S.staffOrder.label }))}</span><button class="btn sm ghost" type="button" data-action="staffOrderCancel">${esc(t('cancel'))}</button></div></div>` : ''}
           ${blocker ? `<div style="padding:.8rem 1.2rem 0"><div class="notice warn">${esc(t(blocker))}</div></div>` : ''}
           <div class="product-grid">${cards}</div>
         </section>
@@ -677,10 +683,11 @@
               ${accounts.map((a) => `<button type="button" class="option ${S.orderAccount === a.id ? 'active' : ''}" data-action="orderAccount" data-id="${esc(a.id)}">${esc(a.label)}</button>`).join('')}
             </div>
             <div class="faint small">${esc(t('cart_pay_now'))}</div>` : ''}
+          <input class="input" id="orderNote" type="text" maxlength="80" autocomplete="off" placeholder="${esc(t('cart_note_placeholder'))}" value="${esc(S.note)}">
           <div class="total-row"><span class="muted">${esc(t('cart_subtotal'))}</span><span class="total">${money(cartTotal())}</span></div>
           <div class="faint small">${esc(t('cart_note'))}</div>
           <button class="btn gold block lg" type="button" data-action="placeOrder" ${!S.cart.length || blocker || sending ? 'disabled' : ''}>
-            ${sending ? spinner() + esc(t('cart_sending')) : esc(t('cart_send'))}
+            ${sending ? spinner() + esc(t('cart_sending')) : esc(S.staffOrder ? t('cart_send_table', { table: S.staffOrder.label }) : t('cart_send'))}
           </button>
         </div>
       </aside>`;
@@ -724,10 +731,12 @@
         </div>
         ${o.kind === 'order' ? renderProgress(o.status) : ''}
         <ul class="oc-lines">${renderOrderLines(o.lines)}</ul>
+        ${o.note ? `<div class="order-note">${esc(t('order_note', { note: o.note }))}</div>` : ''}
+        ${o.placedBy ? `<div class="faint small">${esc(t('order_placed_by', { name: o.placedBy }))}</div>` : ''}
         <div class="oc-foot">
           <span><b class="gold">${money(o.subtotal)}</b> ${payStatus(o)}</span>
           ${o.eta && o.status === 'preparing' ? `<span class="faint small">${esc(t('orders_eta', { t: ago(Math.max(0, o.eta - elapsed)) }))}</span>` : ''}
-          ${o.mine && o.status === 'new' && o.kind === 'order' ? `<button class="btn sm danger" type="button" data-action="cancelOrder" data-id="${o.id}">${esc(t('orders_cancel'))}</button>` : ''}
+          ${o.mine && o.status === 'new' && o.kind === 'order' && o.paymentStatus === 'unpaid' ? `<button class="btn sm danger" type="button" data-action="cancelOrder" data-id="${o.id}">${esc(t('orders_cancel'))}</button>` : ''}
         </div>
       </article>`).join('') : `<div class="empty"><img src="${ICON_PATH}platter.svg" alt=""><span>${esc(t('orders_empty'))}</span>
         <button class="btn outline-gold" type="button" data-action="tab" data-panel="menu">${esc(t('tab_menu'))}</button></div>`;
@@ -756,7 +765,7 @@
           <div class="timer"><i data-bar-until="${until}" data-bar-total="${h.total}" style="width:${pct}%"></i></div>
           <div class="faint small" data-countdown="${until}" data-countdown-format="hookah_left">${esc(t('hookah_left', { t: clock(h.remaining - elapsed) }))}</div>
           <div class="actions">
-            <button class="btn sm gold" type="button" data-action="hookahUse" data-id="${h.id}" ${inUse || !S.me.seat ? 'disabled' : ''}>${esc(t('hookah_smoke'))}</button>
+            <button class="btn sm gold" type="button" data-action="hookahUse" data-id="${h.id}" ${inUse || (S.settings.hookahRequireSeated !== false && !S.me.seat) ? 'disabled' : ''}>${esc(t('hookah_smoke'))}</button>
             ${S.settings.flavorChange && S.settings.flavorChange.enabled ? `<button class="btn sm" type="button" data-action="hookahFlavor" data-id="${h.id}">${esc(t('hookah_flavor'))}</button>` : ''}
             ${S.settings.coalRefresh && S.settings.coalRefresh.enabled ? `<button class="btn sm" type="button" data-action="hookahCoals" data-id="${h.id}">${esc(t('hookah_coals'))}</button>` : ''}
             ${canEnd ? `<button class="btn sm danger" type="button" data-action="hookahEnd" data-id="${h.id}">${esc(t('hookah_end'))}</button>` : ''}
@@ -767,7 +776,10 @@
     return `
       <div class="orders-layout">
         <section>
-          <h3 class="h-section">${esc(t('orders_title'))}</h3>
+          <div class="section-head">
+            <h3 class="h-section">${esc(t('orders_title'))}</h3>
+            ${S.me.tableId ? `<button class="btn sm outline-gold" type="button" data-action="callWaiter" ${busy('callWaiter') ? 'disabled' : ''}>${esc(t('call_waiter'))}</button>` : ''}
+          </div>
           ${list}
         </section>
         <section>
@@ -934,6 +946,8 @@
         </div>
         <div class="small">${esc(o.customer || '')}</div>
         <ul>${(o.lines || []).map((l) => `<li>${esc(l.label)} × ${l.qty}${l.flavorLabels && l.flavorLabels.length ? ` (${esc(l.flavorLabels.join(' + '))})` : ''}</li>`).join('')}</ul>
+        ${o.note ? `<div class="order-note">${esc(t('order_note', { note: o.note }))}</div>` : ''}
+        ${o.placedBy ? `<div class="faint small">${esc(t('order_placed_by', { name: o.placedBy }))}</div>` : ''}
         <div class="faint small">${o.auto ? esc(t('staff_kitchen')) : o.handler ? esc(t('staff_handler', { name: o.handler })) : ''}</div>
         <div class="t-head"><b class="gold">${money(o.subtotal)}</b>${payStatus(o)}</div>
         <div class="t-actions">${actions}</div>
@@ -974,6 +988,7 @@
       if (tb.status === 'free' && hasPerm('reserve_table')) actions.push(`<button class="btn sm" type="button" data-action="staffReserve" data-id="${tb.id}">${esc(t('staff_reserve'))}</button>`);
       if (tb.status === 'reserved' && !tb.owner && hasPerm('reserve_table')) actions.push(`<button class="btn sm" type="button" data-action="staffTable" data-id="${tb.id}" data-op="unreserve">${esc(t('staff_unreserve'))}</button>`);
       if ((tb.status === 'free' || (tb.status === 'reserved' && !tb.owner)) && hasPerm('seat_guest')) actions.push(`<button class="btn sm outline-gold" type="button" data-action="staffSeat" data-id="${tb.id}">${esc(t('staff_seat_guest'))}</button>`);
+      if (tb.status === 'occupied' && tb.owner && hasPerm('take_order') && S.settings.timing === 'on_bill') actions.push(`<button class="btn sm gold" type="button" data-action="staffTakeOrder" data-id="${tb.id}" data-label="${esc(tb.label)}">${esc(t('staff_take_order'))}</button>`);
       if (tb.unpaid > 0 && tb.owner && hasPerm('request_payment')) actions.push(`<button class="btn sm outline-gold" type="button" data-action="staffRequestPay" data-id="${tb.id}">${esc(t('staff_request_payment'))}</button>`);
       if (tb.status !== 'free' && hasPerm('release_table')) actions.push(`<button class="btn sm danger" type="button" data-action="staffRelease" data-id="${tb.id}" data-label="${esc(tb.label)}">${esc(t('staff_release'))}</button>`);
       const members = (tb.members || []).map((m) => esc(m.name) + (m.unpaid ? ` <span class="faint">(${money(m.unpaid)})</span>` : '')).join(', ');
@@ -1246,6 +1261,7 @@
     closeModal: () => closeModal(),
     tab: (el) => {
       const panel = el.dataset.panel;
+      if (S.staffOrder && panel !== 'menu') { S.staffOrder = null; S.cart = []; }
       S.panel = panel;
       S.modal = null;
       post('switchPanel', { panel });
@@ -1320,17 +1336,46 @@
     orderAccount: (el) => { S.orderAccount = el.dataset.id; render(); },
     placeOrder: async () => {
       if (!S.cart.length) return;
-      const result = await call('placeOrder', {
-        lines: S.cart.map((l) => ({ id: l.id, qty: l.qty, flavors: l.flavors })),
-        requestId: requestId(),
-        account: S.orderAccount,
-      });
+      const lines = S.cart.map((l) => ({ id: l.id, qty: l.qty, flavors: l.flavors }));
+      if (S.staffOrder) {
+        const result = await call('staffAction', { action: 'order', tableId: S.staffOrder.tableId, lines, requestId: requestId(), note: S.note }, { busy: 'placeOrder' });
+        if (result.ok) {
+          S.cart = [];
+          S.note = '';
+          S.staffOrder = null;
+          S.panel = 'staff';
+          S.staffTab = 'orders';
+          post('switchPanel', { panel: 'staff' });
+          render();
+        }
+        return;
+      }
+      const result = await call('placeOrder', { lines, requestId: requestId(), account: S.orderAccount, note: S.note });
       if (result.ok) {
         S.cart = [];
+        S.note = '';
         S.panel = 'orders';
         post('switchPanel', { panel: 'orders' });
         render();
       }
+    },
+    callWaiter: () => call('callWaiter', {}),
+    staffTakeOrder: (el) => {
+      S.staffOrder = { tableId: Number(el.dataset.id), label: el.dataset.label };
+      S.cart = [];
+      S.note = '';
+      S.panel = 'menu';
+      S.category = 'all';
+      post('switchPanel', { panel: 'menu' });
+      render();
+    },
+    staffOrderCancel: () => {
+      S.staffOrder = null;
+      S.cart = [];
+      S.panel = 'staff';
+      S.staffTab = 'tables';
+      post('switchPanel', { panel: 'staff' });
+      render();
     },
     cancelOrder: (el) => call('cancelOrder', { orderId: Number(el.dataset.id) }),
     consume: (el) => call('consume', { itemId: el.dataset.id }, { busy: 'consume' }),
@@ -1455,6 +1500,10 @@
   });
 
   document.addEventListener('input', (event) => {
+    if (event.target.id === 'orderNote') {
+      S.note = event.target.value;
+      return;
+    }
     if (event.target.id === 'menuSearch') {
       S.search = event.target.value;
       render();

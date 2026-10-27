@@ -37,6 +37,8 @@ async function test(name, fn) {
 async function shot(page, name) {
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
+  await page.mouse.move(0, 0); // no hover effects in the pictures
+  await page.waitForTimeout(450); // let entrance animations finish
   await page.screenshot({ path: path.join(SHOTS, name + '.jpg'), type: 'jpeg', quality: 86 });
 }
 
@@ -172,6 +174,34 @@ const numberIn = (text) => Number(String(text).replace(/[^\d]/g, ''));
     await shot(page, '12-staff-sales');
     await page.click('.chip[data-tab="logs"]');
     await page.waitForSelector('.log-row');
+  });
+
+  await test('kitchen note and "call waiter" from the customer screens', async () => {
+    await open('?panel=menu');
+    await page.click('.add-btn[data-id="cola"]');
+    await page.fill('#orderNote', 'בלי קרח');
+    await page.click('.add-btn[data-id="water"]');
+    assert.strictEqual(await page.inputValue('#orderNote'), 'בלי קרח', 'note kept while the cart changes');
+    await page.click('[data-action="placeOrder"]');
+    await page.waitForSelector('.order-card .order-note');
+    assert.ok((await page.textContent('.order-card .order-note')).includes('בלי קרח'));
+    await page.click('[data-action="callWaiter"]');
+    await page.waitForSelector('.toast.success');
+  });
+
+  await test('staff: a waiter takes an order for a table from the tables tab', async () => {
+    await open('?panel=staff');
+    await page.click('.chip[data-tab="tables"]');
+    await page.click('[data-action="staffTakeOrder"]');
+    await page.waitForSelector('.notice.staff-order');
+    await page.click('.add-btn[data-id="tea_nana"]');
+    await page.fill('#orderNote', 'עם הרבה נענע');
+    assert.ok((await page.textContent('[data-action="placeOrder"]')).includes('שליחה ל'));
+    await shot(page, '17-staff-take-order');
+    await page.click('[data-action="placeOrder"]');
+    await page.waitForSelector('.kanban');
+    const tickets = await page.textContent('.kanban');
+    assert.ok(tickets.includes('עם הרבה נענע') && tickets.includes('דניאל'), 'ticket shows the note and the waiter');
   });
 
   await test('E-prompt, context menu (number keys) and toasts outside the panel', async () => {

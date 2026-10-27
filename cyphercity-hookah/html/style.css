@@ -558,6 +558,10 @@ select.input option { background: var(--panel-2); color: var(--text); }
 .progress.cancelled .step { opacity: 0.4; }
 
 .served-list, .hookah-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.section-head { display: flex; align-items: center; gap: 0.8rem; }
+.section-head .h-section { flex: 1; }
+.order-note { font-size: 0.82rem; color: #ecd29f; background: var(--warning-soft); border-radius: var(--radius-xs); padding: 0.35rem 0.6rem; }
+.notice.staff-order { align-items: center; justify-content: space-between; background: var(--gold-soft); color: var(--gold-2); border-color: var(--line-gold); }
 .served-item { display: flex; align-items: center; gap: 0.8rem; padding: 0.7rem 0.8rem; border-radius: var(--radius-sm); background: var(--panel-2); border: 1px solid var(--line); }
 .served-item img { width: 2.2rem; height: 2.2rem; }
 .served-item .si-name { flex: 1; }

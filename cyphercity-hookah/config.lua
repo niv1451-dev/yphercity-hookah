@@ -546,8 +546,8 @@ Config.Staff = {
     -- מה כל תפקיד רשאי לעשות. '*' = הכול.
     permissions = {
         host    = { 'view_tables', 'reserve_table', 'clean_table', 'seat_guest' },
-        waiter  = { 'view_tables', 'view_orders', 'update_order', 'clean_table' },
-        cashier = { 'view_tables', 'view_orders', 'update_order', 'clean_table', 'cancel_order', 'request_payment', 'view_sales' },
+        waiter  = { 'view_tables', 'view_orders', 'update_order', 'take_order', 'clean_table' },
+        cashier = { 'view_tables', 'view_orders', 'update_order', 'take_order', 'clean_table', 'cancel_order', 'request_payment', 'view_sales' },
         manager = { '*' },
     },
     panelCommand = 'hookahstaff', -- פקודה לפתיחת פאנל הניהול (רק לעובדים, בתוך העסק)

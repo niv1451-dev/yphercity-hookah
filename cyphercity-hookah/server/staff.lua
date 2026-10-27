@@ -66,7 +66,7 @@ end
 
 local ALL_PERMISSIONS = {
     'view_tables', 'reserve_table', 'clean_table', 'seat_guest', 'release_table',
-    'view_orders', 'update_order', 'cancel_order', 'request_payment',
+    'view_orders', 'update_order', 'take_order', 'cancel_order', 'request_payment',
     'view_sales', 'manage_stock', 'toggle_business', 'view_logs',
 }
 

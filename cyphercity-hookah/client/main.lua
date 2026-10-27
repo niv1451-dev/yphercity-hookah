@@ -38,7 +38,8 @@ function Client.Bootstrap()
     State.catalog = data.catalog
     State.tables = data.tables or {}
     State.hookahs = data.hookahs or {}
-    State.me = data.me or {}
+    -- through ApplyState so a seat the server no longer knows (resource restart) is cleared
+    Client.ApplyState(data.me or {})
     Bridge.framework = data.settings.framework
     Bridge.notify = Bridge.ResolveNotify()
     State.bootstrapped = true

@@ -38,6 +38,7 @@ Callback.Register('bootstrap', function(src)
             allowTableBill = Config.Payments.allowTableBill,
             tableBillPayer = Config.Payments.tableBillPayer,
             maxPartySize = Config.TableSettings.maxPartySize or 6,
+            hookahRequireSeated = Config.Hookah.requireSeated ~= false,
             allowWithoutTable = Config.Orders.allowWithoutTable == true,
             maxQtyPerLine = Config.Orders.maxQtyPerLine,
             maxItemsPerOrder = Config.Orders.maxItemsPerOrder,
@@ -197,6 +198,9 @@ end, 'staffAction')
 local STAFF_ACTIONS = {
     orderStatus = function(src, payload)
         return Orders.StaffSetStatus(src, payload.orderId, payload.status)
+    end,
+    order = function(src, payload)
+        return Orders.CreateForTable(src, payload)
     end,
     orderCancel = function(src, payload)
         return Orders.StaffCancel(src, payload.orderId, payload.reason)

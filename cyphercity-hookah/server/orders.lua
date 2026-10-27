@@ -220,27 +220,11 @@ local function openBillAllowed(src, t, extra)
     return open + extra <= limit, limit
 end
 
-function Orders.Create(src, payload)
-    if not Security.CheckRequestId(src, payload.requestId) then return false, 'duplicate_request' end
-    local allowed, code = Business.CanServe(src)
-    if not allowed then return false, code end
-    if not Payments.OrderingAllowed() then return false, 'payments_disabled' end
-    if busy[src] then return false, 'busy' end
-    local last = lastOrderAt[src]
-    if last and now() - last < (Config.Orders.cooldownSeconds or 5) then return false, 'order_cooldown' end
-    if not Security.InVenue(src) then return false, 'not_in_venue' end
-
-    local t = Tables.Of(src)
-    if t then
-        if t.status ~= 'occupied' then return false, 'not_seated' end
-    elseif not Config.Orders.allowWithoutTable then
-        return false, 'need_table'
-    end
-
-    local maxActive = Config.Orders.maxActiveOrdersPerPlayer or 3
-    if Orders.ActiveCount(src) >= maxActive then return false, 'too_many_active_orders', maxActive end
-
-    local lines, subtotal, hookahs = Orders.NormalizeLines(payload.lines)
+-- Shared validation for customer and staff orders: prices the lines, checks
+-- hookah spots at the table and optional inventory requirements of `customer`.
+-- Returns lines, subtotal, toRemove — or false, code, args...
+local function prepareLines(customer, t, rawLines)
+    local lines, subtotal, hookahs = Orders.NormalizeLines(rawLines)
     if not lines then
         -- on failure NormalizeLines returns nil, errorCode, errorArg
         return false, subtotal, hookahs
@@ -261,12 +245,64 @@ function Orders.Create(src, payload)
         local need = product.inventory and product.inventory.require
         if need and not need.disabled then
             local count = need.count * line.qty
-            if Inventory.GetCount(src, need.name) < count then
+            if Inventory.GetCount(customer, need.name) < count then
                 return false, 'missing_required_item', product.label, need.label or need.name
             end
             if need.remove then toRemove[#toRemove + 1] = { name = need.name, count = count } end
         end
     end
+    return lines, subtotal, toRemove
+end
+
+local function commit(customer, t, lines, subtotal, toRemove, paymentInfo, extra)
+    for _, item in ipairs(toRemove) do
+        if not Inventory.Remove(customer, item.name, item.count) then
+            Logger.Warn('order', ('Could not remove required item %s x%d from %s'):format(item.name, item.count, Security.Describe(customer)))
+        end
+    end
+    if Config.Stock.enabled then
+        for _, line in ipairs(lines) do stock[line.id] = (stock[line.id] or 0) - line.qty end
+    end
+    local order = newOrder(customer, t, 'order', lines, subtotal)
+    order.note = extra.note
+    order.placedBy = extra.placedBy
+    if paymentInfo then
+        markPaid(order, customer, paymentInfo, subtotal)
+        Persistence.RecordSale({ order }, paymentInfo.free and 0 or subtotal, 0)
+    end
+    Staff.NotifyAll('view_orders', L('staff_new_order', order.id, order.tableLabel or '-'), 'info')
+    Sync.Order(order)
+    return order
+end
+
+local function cleanNote(note)
+    note = Utils.SanitizeString(note, 80)
+    if note == '' then return nil end
+    return note
+end
+
+function Orders.Create(src, payload)
+    if not Security.CheckRequestId(src, payload.requestId) then return false, 'duplicate_request' end
+    local allowed, code = Business.CanServe(src)
+    if not allowed then return false, code end
+    if not Payments.OrderingAllowed() then return false, 'payments_disabled' end
+    if busy[src] then return false, 'busy' end
+    local last = lastOrderAt[src]
+    if last and now() - last < (Config.Orders.cooldownSeconds or 5) then return false, 'order_cooldown' end
+    if not Security.InVenue(src) then return false, 'not_in_venue' end
+
+    local t = Tables.Of(src)
+    if t then
+        if t.status ~= 'occupied' then return false, 'not_seated' end
+    elseif not Config.Orders.allowWithoutTable then
+        return false, 'need_table'
+    end
+
+    local maxActive = Config.Orders.maxActiveOrdersPerPlayer or 3
+    if Orders.ActiveCount(src) >= maxActive then return false, 'too_many_active_orders', maxActive end
+
+    local lines, subtotal, toRemove, extraArg = prepareLines(src, t, payload.lines)
+    if not lines then return false, subtotal, toRemove, extraArg end
 
     local paymentInfo
     if Config.Payments.timing == 'on_order' then
@@ -281,28 +317,39 @@ function Orders.Create(src, payload)
     end
 
     -- commit (nothing below yields)
-    for _, item in ipairs(toRemove) do
-        if not Inventory.Remove(src, item.name, item.count) then
-            Logger.Warn('order', ('Could not remove required item %s x%d from %s'):format(item.name, item.count, Security.Describe(src)))
-        end
-    end
-    if Config.Stock.enabled then
-        for _, line in ipairs(lines) do stock[line.id] = (stock[line.id] or 0) - line.qty end
-    end
-
-    local order = newOrder(src, t, 'order', lines, subtotal)
-    if paymentInfo then
-        markPaid(order, src, paymentInfo, subtotal)
-        Persistence.RecordSale({ order }, paymentInfo.free and 0 or subtotal, 0)
-    end
+    local order = commit(src, t, lines, subtotal, toRemove, paymentInfo, { note = cleanNote(payload.note) })
     lastOrderAt[src] = now()
-
     Logger.Info('order', ('Order #%d by %s at %s: %s'):format(order.id, Security.Describe(src), order.tableLabel or 'bar', Utils.FormatMoney(subtotal)), {
         order = order.id, total = subtotal, lines = #lines, paid = order.paymentStatus == 'paid',
     })
-    Staff.NotifyAll('view_orders', L('staff_new_order', order.id, order.tableLabel or '-'), 'info')
-    Sync.Order(order)
     return true, order
+end
+
+-- A staff member (waiter) takes an order for a table. The order goes on the
+-- table host's tab, so this is only possible when paying at the end (on_bill).
+function Orders.CreateForTable(staffSrc, payload)
+    if not Staff.Require(staffSrc, 'take_order') then return false, 'no_permission' end
+    if not Security.CheckRequestId(staffSrc, payload.requestId) then return false, 'duplicate_request' end
+    if Config.Payments.timing ~= 'on_bill' then return false, 'staff_order_on_bill_only' end
+    if not Business.IsOpen() then return false, 'business_closed' end
+    if not Payments.OrderingAllowed() then return false, 'payments_disabled' end
+    local t = Tables.Get(payload.tableId)
+    if not t then return false, 'table_not_found' end
+    if t.status ~= 'occupied' or not t.owner then return false, 'table_unavailable' end
+    local customer = t.owner
+
+    local lines, subtotal, toRemove, extraArg = prepareLines(customer, t, payload.lines)
+    if not lines then return false, subtotal, toRemove, extraArg end
+    local ok, limit = openBillAllowed(customer, t, subtotal)
+    if not ok then return false, 'open_bill_limit', Utils.FormatMoney(limit) end
+
+    local staffName = Framework.GetCharName(staffSrc)
+    local order = commit(customer, t, lines, subtotal, toRemove, nil, { note = cleanNote(payload.note), placedBy = staffName })
+    Notify.Player(customer, L('staff_order_for_you', staffName, order.id, Utils.FormatMoney(subtotal)), 'info')
+    Logger.Info('staff', ('%s took order #%d for %s: %s'):format(Security.Describe(staffSrc), order.id, t.label, Utils.FormatMoney(subtotal)), {
+        order = order.id, total = subtotal, table = t.id,
+    })
+    return true, L('staff_order_sent', order.id, t.label)
 end
 
 -- Service charges (flavour change, coal refresh) are recorded as completed
@@ -430,7 +477,7 @@ function Orders.StaffSetStatus(staffSrc, orderId, status)
         advance(order, FLOW[index], actor)
     end
     Logger.Info('staff', ('%s set order #%d to %s'):format(Security.Describe(staffSrc), order.id, status))
-    return true, L('staff_order_updated', order.id, status)
+    return true, L('staff_order_updated', order.id, L('order_status_' .. status))
 end
 
 local function cancel(order, by, reason)
@@ -757,6 +804,8 @@ function Orders.View(order, viewer)
         eta = order.readyAt and math.max(0, order.readyAt - current) or nil,
         auto = order.auto,
         handler = order.handlerName,
+        note = order.note,
+        placedBy = order.placedBy,
     }
 end
 
