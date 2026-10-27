@@ -1,4 +1,4 @@
-/* CypherCity Hookah Lounge — NUI application.
+/* Hookah lounge NUI application (business name and subtitle come from config.lua).
    Vanilla JS, no external libraries. The UI only displays data and sends ids and
    quantities; every price, permission and payment is decided by the server. */
 (function () {
@@ -323,6 +323,10 @@
     S.party = Math.min(2, S.settings.maxPartySize || 6);
     document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
     document.querySelectorAll('[data-t-title]').forEach((el) => { el.title = t(el.dataset.tTitle); });
+    const business = data.business || {};
+    $('#brandTitle').textContent = business.name || '';
+    if (business.subtitle) $('#brandSub').textContent = business.subtitle;
+    if (business.name) document.title = business.name;
     if (S.open) render();
   }
 
@@ -860,7 +864,7 @@
         <div class="receipt">
           <div class="receipt-head">
             <img src="${ICON_PATH}logo.svg" alt="">
-            <div class="r-title">CYPHERCITY</div>
+            <div class="r-title">${esc((S.init && S.init.business && S.init.business.name) || '')}</div>
             <div class="faint small">${esc(bill.tableLabel || '')}</div>
           </div>
           ${groups}

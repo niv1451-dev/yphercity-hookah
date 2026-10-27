@@ -1,8 +1,8 @@
 <div dir="rtl">
 
-# CypherCity — Hookah Lounge
+# המקום של השייח — טרקלין נרגילות
 
-משאב FiveM לעסק הנרגילות של שרת CypherCity.
+משאב FiveM לעסק הנרגילות "המקום של השייח" בשרת CypherCity.
 
 * **המשאב עצמו:** התיקייה [`cyphercity-hookah`](cyphercity-hookah). מעתיקים אותה לתיקיית ה-resources בשרת.
 * **הוראות התקנה והגדרה (עברית):** [`cyphercity-hookah/README.md`](cyphercity-hookah/README.md)

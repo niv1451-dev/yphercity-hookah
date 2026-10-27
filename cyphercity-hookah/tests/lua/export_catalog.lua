@@ -28,7 +28,7 @@ end
 local data = {
     locale = Config.Locale,
     currency = Config.Currency,
-    business = { name = Config.Business.name, label = Config.Business.label, hostess = Config.Hostess.name },
+    business = { name = Config.Business.name, subtitle = Config.Business.subtitle, hostess = Config.Hostess.name },
     catalog = Catalog.ForNui(),
     tables = tables,
     settings = {

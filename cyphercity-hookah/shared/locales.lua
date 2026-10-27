@@ -5,7 +5,6 @@ Locales = {}
 
 Locales.he = {
     -- general
-    business_name = 'טרקלין הנרגילות',
     business_closed = 'העסק סגור כרגע.',
     access_denied = 'העסק פתוח כרגע רק לאורחים מורשים.',
     too_far = 'אתה רחוק מדי.',
@@ -158,7 +157,6 @@ Locales.he = {
 }
 
 Locales.en = {
-    business_name = 'Hookah Lounge',
     business_closed = 'The lounge is closed right now.',
     access_denied = 'The lounge is currently open to authorised guests only.',
     too_far = 'You are too far away.',

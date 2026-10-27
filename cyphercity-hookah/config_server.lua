@@ -17,7 +17,7 @@ ServerConfig.Logging = {
     discord = {
         enabled = false,
         convar = 'cyphercity_hookah_webhook',
-        username = 'CypherCity Hookah',
+        username = 'המקום של השייח',
         -- אילו קטגוריות לשלוח: order, payment, table, hookah, staff, security, system
         categories = { payment = true, staff = true, security = true },
     },

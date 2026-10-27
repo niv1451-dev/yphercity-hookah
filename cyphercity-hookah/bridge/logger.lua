@@ -61,7 +61,7 @@ function Logger.FlushDiscord()
         end
     end
     local payload = {
-        username = (settings().discord or {}).username or 'CypherCity Hookah',
+        username = (settings().discord or {}).username or Config.Business.name,
         embeds = { {
             title = ('[%s] %s'):format(entry.category, entry.level:upper()),
             description = entry.message,

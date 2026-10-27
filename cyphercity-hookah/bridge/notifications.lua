@@ -22,7 +22,7 @@ else
 
         if mode == 'ox_lib' and Bridge.IsStarted('ox_lib') then
             TriggerEvent('ox_lib:notify', {
-                title = L('business_name'),
+                title = Config.Business.name,
                 description = message,
                 type = kind,
                 duration = duration,

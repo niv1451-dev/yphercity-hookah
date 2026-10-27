@@ -65,6 +65,8 @@ const numberIn = (text) => Number(String(text).replace(/[^\d]/g, ''));
     assert.strictEqual(await page.locator('.category').count(), DATA.catalog.categories.length + 1);
     assert.strictEqual(await page.locator('.product').count(), DATA.catalog.products.length);
     assert.ok((await page.textContent('.tabs')).includes('תפריט'));
+    assert.strictEqual((await page.textContent('#brandTitle')).trim(), DATA.business.name, 'business name from config.lua');
+    assert.strictEqual(await page.title(), DATA.business.name);
     await shot(page, '01-menu');
   });
 

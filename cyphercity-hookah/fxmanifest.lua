@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'cyphercity-hookah'
 author 'CypherCity'
-description 'CypherCity Hookah Lounge — hostess, tables, waiters, hookahs, menu, bills and staff panel'
+description "The Sheikh's Place (המקום של השייח) hookah lounge for CypherCity — hostess, tables, waiters, hookahs, menu, bills and staff panel"
 version '1.0.0'
 
 -- No hard dependencies: ESX / QBCore / Qbox, ox_target / qb-target, ox_lib and

@@ -89,7 +89,7 @@ function Security.Flag(src, reason, data)
     local limit = Config.Security.violationsBeforeKick or 0
     if limit > 0 and violations[src] >= limit then
         Logger.Warn('security', ('Dropping %s after %d violations'):format(Security.Describe(src), violations[src]))
-        DropPlayer(src, 'CypherCity Hookah: too many invalid requests')
+        DropPlayer(src, Config.Business.name .. ': too many invalid requests')
     end
 end
 
