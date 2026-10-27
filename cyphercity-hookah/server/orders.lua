@@ -13,6 +13,7 @@ local lastOrderAt = {}     -- [src] = os.time()
 local stock = {}           -- [productId] = remaining (only when Config.Stock.enabled)
 local busy = {}            -- [src] = true while an order is being charged
 local consumingUntil = {}  -- [src] = GetGameTimer() deadline
+local awayState = {}       -- [src] = { since, warned } for players with an open bill outside the lounge
 
 local ACTIVE = { new = true, preparing = true, serving = true }
 local FLOW = { 'new', 'preparing', 'serving', 'completed' }
@@ -133,10 +134,16 @@ function Orders.ActiveCount(src)
     return count
 end
 
+-- True when the order belongs to the party currently holding the table
+-- (a table is reused by many parties; each assignment starts a new session).
+local function currentParty(order, tableId)
+    return order.tableId == tableId and order.tableSession == Tables.Session(tableId)
+end
+
 function Orders.PendingHookahs(tableId)
     local count = 0
     for _, order in pairs(Orders.byId) do
-        if order.tableId == tableId and ACTIVE[order.status] then
+        if currentParty(order, tableId) and ACTIVE[order.status] then
             for _, line in ipairs(order.lines) do
                 if line.kind == 'hookah' then count = count + line.qty end
             end
@@ -157,7 +164,7 @@ end
 function Orders.UnpaidForTable(tableId)
     local list = {}
     for _, order in pairs(Orders.byId) do
-        if order.tableId == tableId and isUnpaid(order) then list[#list + 1] = order end
+        if currentParty(order, tableId) and isUnpaid(order) then list[#list + 1] = order end
     end
     table.sort(list, function(a, b) return a.id < b.id end)
     return list
@@ -178,6 +185,7 @@ local function newOrder(src, t, kind, lines, subtotal)
         id = nextId,
         kind = kind,
         tableId = t and t.id or nil,
+        tableSession = t and t.session or nil,
         tableLabel = t and t.label or nil,
         src = src,
         identifier = Framework.GetIdentifier(src),
@@ -344,12 +352,20 @@ function Orders.Deliver(order)
             local give = product.inventory and product.inventory.give
             local delivered = false
             if give and not give.disabled and Inventory.Active() then
-                local count = give.count * line.qty
-                if Inventory.CanCarry(src, give.name, count) and Inventory.Add(src, give.name, count) then
-                    delivered = true
-                    receivedLabels[#receivedLabels + 1] = ('%s x%d'):format(product.label, line.qty)
+                if order.paymentStatus == 'paid' then
+                    local count = give.count * line.qty
+                    if Inventory.CanCarry(src, give.name, count) and Inventory.Add(src, give.name, count) then
+                        delivered = true
+                        receivedLabels[#receivedLabels + 1] = ('%s x%d'):format(product.label, line.qty)
+                    else
+                        Notify.Player(src, L('inventory_full_fallback', product.label), 'info')
+                    end
                 else
-                    Notify.Player(src, L('inventory_full_fallback', product.label), 'info')
+                    -- real items leave the lounge only after payment (otherwise ordering
+                    -- and disconnecting would hand out free inventory items)
+                    order.pendingGive = order.pendingGive or {}
+                    order.pendingGive[#order.pendingGive + 1] = { name = give.name, count = give.count * line.qty, label = product.label, qty = line.qty }
+                    delivered = true
                 end
             end
             if not delivered then
@@ -360,6 +376,7 @@ function Orders.Deliver(order)
         end
     end
 
+    if order.pendingGive and online then Notify.Player(src, L('items_after_payment'), 'info') end
     if online then
         if #receivedLabels > 0 then Notify.Player(src, L('received_items', table.concat(receivedLabels, ', ')), 'success') end
         if #servedLabels > 0 then Notify.Player(src, L('served_to_table', table.concat(servedLabels, ', ')), 'success') end
@@ -450,6 +467,8 @@ function Orders.CustomerCancel(src, orderId)
         return false, 'order_cannot_cancel'
     end
     if order.paymentStatus == 'processing' then return false, 'payment_in_progress' end
+    -- paid orders are refunded only by staff (a customer pay → cancel loop must not move money)
+    if order.paymentStatus ~= 'unpaid' then return false, 'order_cannot_cancel' end
     cancel(order, 'customer', 'customer_cancel')
     return true
 end
@@ -474,32 +493,32 @@ function Orders.StaffCancel(staffSrc, orderId, reason)
     return true, L('order_cancelled', order.id)
 end
 
--- Voids every unpaid order of a player (disconnect, walkout, released table).
-function Orders.VoidFor(src, reason)
+-- Voids unpaid orders of a player (disconnect, walkout, staff release).
+-- With `tableId`, only the orders placed at that table are voided.
+function Orders.VoidFor(src, reason, tableId)
     for _, order in ipairs(Orders.UnpaidFor(src)) do
-        if ACTIVE[order.status] then
-            cancel(order, 'system', reason)
-        else
-            order.paymentStatus = 'void'
-            order.voidReason = reason
-            order.updatedAt = now()
-            Logger.Warn('payment', ('Order #%d voided unpaid (%s)'):format(order.id, reason), { order = order.id, amount = order.subtotal, identifier = order.identifier })
-            Sync.Order(order)
+        if not tableId or order.tableId == tableId then
+            if ACTIVE[order.status] then
+                cancel(order, 'system', reason)
+            else
+                order.paymentStatus = 'void'
+                order.voidReason = reason
+                order.updatedAt = now()
+                Logger.Warn('payment', ('Order #%d voided unpaid (%s)'):format(order.id, reason), { order = order.id, amount = order.subtotal, identifier = order.identifier })
+                Sync.Order(order)
+            end
         end
     end
 end
 
-function Orders.OnTableReleased(tableId, reason)
+-- A table was released: orders of that party that were not served yet are
+-- cancelled (refunded if paid). Served-but-unpaid orders stay on the customer's
+-- personal tab — they are never silently voided (walkout tracking handles them).
+function Orders.OnTableReleased(tableId, session, reason)
     for _, order in pairs(Orders.byId) do
-        if order.tableId == tableId and order.paymentStatus ~= 'processing' then
-            if ACTIVE[order.status] then
-                cancel(order, 'system', reason)
-            elseif isUnpaid(order) then
-                order.paymentStatus = 'void'
-                order.voidReason = reason
-                order.updatedAt = now()
-                Logger.Warn('payment', ('Order #%d voided on table release (%s)'):format(order.id, reason or '-'), { order = order.id, amount = order.subtotal })
-            end
+        if order.tableId == tableId and order.tableSession == session and order.paymentStatus ~= 'processing'
+            and ACTIVE[order.status] then
+            cancel(order, 'system', reason)
         end
     end
 end
@@ -583,24 +602,113 @@ function Orders.Tick()
                 advance(order, 'completed', KITCHEN)
             end
         elseif not ACTIVE[order.status] and order.paymentStatus ~= 'unpaid' and order.paymentStatus ~= 'processing'
+            and order.paymentStatus ~= 'refund_pending'
             and current - order.updatedAt > (Config.Orders.keepFinishedFor or 900) then
             Orders.byId[id] = nil
         end
     end
 end
 
-function Orders.OnDropped(src)
+-- reason: 'disconnect' | 'character_switch'
+function Orders.OnDropped(src, reason)
+    reason = reason or 'disconnect'
     local unpaid = Orders.UnpaidTotalFor(src)
     if unpaid > 0 then
-        Logger.Warn('security', ('Disconnected with an unpaid bill of %s: %s'):format(unpaid, Security.Describe(src)), {
-            player = src, identifier = Framework.GetIdentifier(src), amount = unpaid,
+        local first = Orders.UnpaidFor(src)[1]
+        local identifier = first and first.identifier
+        Logger.Warn('security', ('Left with an unpaid bill of %s (%s): %s'):format(unpaid, reason, Security.Describe(src)), {
+            player = src, identifier = identifier, amount = unpaid, reason = reason,
         })
-        Orders.VoidFor(src, 'disconnect')
+        Orders.VoidFor(src, reason)
     end
     served[src] = nil
     lastOrderAt[src] = nil
     busy[src] = nil
     consumingUntil[src] = nil
+    awayState[src] = nil
+end
+
+-- True when this server id still holds orders of a different character
+-- (multicharacter logout without disconnecting).
+function Orders.HasStaleState(src, identifier)
+    for _, order in pairs(Orders.byId) do
+        if order.src == src and order.identifier ~= identifier and (ACTIVE[order.status] or isUnpaid(order)) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Anyone with an open bill (table or bar) who leaves the lounge: warning after
+-- awayTimeout, bill voided and logged after walkoutGrace more seconds.
+local walkoutCheckAt = 0
+function Orders.TickWalkouts()
+    local current = now()
+    if current < walkoutCheckAt or not Security.oneSync then return end
+    walkoutCheckAt = current + 5
+    local settings = Config.TableSettings
+    local awayTimeout = settings.awayTimeout or 120
+    local grace = settings.walkoutGrace or 300
+    local debtors = {}
+    for _, order in pairs(Orders.byId) do
+        if isUnpaid(order) then debtors[order.src] = (debtors[order.src] or 0) + order.subtotal end
+    end
+    for src in pairs(awayState) do
+        if not debtors[src] then awayState[src] = nil end
+    end
+    for src, unpaid in pairs(debtors) do
+        local position = Security.GetCoords(src)
+        local away = position and not Utils.WithinRange(position, Config.Venue.center, settings.awayDistance or 45.0, 30.0)
+        if not away then
+            awayState[src] = nil
+        else
+            local state = awayState[src]
+            if not state then
+                state = { since = current }
+                awayState[src] = state
+            end
+            local awayFor = current - state.since
+            if awayFor >= awayTimeout + grace then
+                Logger.Warn('security', ('Walkout: %s left with an unpaid bill of %s'):format(Security.Describe(src), unpaid), {
+                    player = src, identifier = Framework.GetIdentifier(src), amount = unpaid,
+                })
+                Orders.VoidFor(src, 'walkout')
+                Notify.Player(src, L('walkout_voided'), 'error')
+                awayState[src] = nil
+                if Tables.Of(src) then Tables.Leave(src, { force = true, reason = 'walkout' }) end
+            elseif awayFor >= awayTimeout and not state.warned then
+                state.warned = true
+                Notify.Player(src, L('walkout_warning', Utils.FormatMoney(unpaid), Utils.FormatDuration(awayTimeout + grace - awayFor)), 'error')
+                Logger.Warn('table', ('%s left the venue with an open bill of %s'):format(Security.Describe(src), unpaid), { player = src })
+            end
+        end
+    end
+end
+
+-- Called by Payments once an order is paid: hands out inventory items that were
+-- held back until payment.
+function Orders.OnPaid(order)
+    local pending = order.pendingGive
+    if not pending then return end
+    order.pendingGive = nil
+    if not isOnline(order.src, order.identifier) then return end
+    local received = {}
+    for _, item in ipairs(pending) do
+        if Inventory.CanCarry(order.src, item.name, item.count) and Inventory.Add(order.src, item.name, item.count) then
+            received[#received + 1] = ('%s x%d'):format(item.label, item.qty)
+        else
+            served[order.src] = served[order.src] or {}
+            local product
+            for _, line in ipairs(order.lines) do
+                local p = Catalog.Get(line.id)
+                if p and p.label == item.label then product = p break end
+            end
+            if product then served[order.src][product.id] = (served[order.src][product.id] or 0) + item.qty end
+            Notify.Player(order.src, L('inventory_full_fallback', item.label), 'info')
+        end
+    end
+    if #received > 0 then Notify.Player(order.src, L('received_items', table.concat(received, ', ')), 'success') end
+    Sync.Player(order.src)
 end
 
 -- Stock -----------------------------------------------------------------------------
@@ -656,7 +764,7 @@ function Orders.ForPlayer(src)
     local t = Tables.Of(src)
     local list = {}
     for _, order in pairs(Orders.byId) do
-        local relevant = order.src == src or (t and order.tableId == t.id)
+        local relevant = order.src == src or (t and currentParty(order, t.id))
         if relevant and (ACTIVE[order.status] or isUnpaid(order) or now() - order.updatedAt < 600) then
             list[#list + 1] = Orders.View(order, src)
         end

@@ -10,7 +10,7 @@ Tables = {
 }
 
 local memberOf = {}     -- [src] = tableId
-local invites = {}      -- [src] = { [tableId] = expiresAt }
+local invites = {}      -- [src] = { [tableId] = { expires, session, from } }
 local settings
 
 local function now() return Utils.Now() end
@@ -60,6 +60,7 @@ function Tables.Init()
                 memberOrder = {},
                 seats = {},
                 partySize = 0,
+                session = 0,        -- increases every time a new party gets the table
                 updatedAt = now(),
             }
             Tables.list[#Tables.list + 1] = t
@@ -174,6 +175,7 @@ function Tables.RequestTable(src, partySize)
     if not t then return false, 'no_free_table' end
 
     t.partySize = partySize
+    t.session = t.session + 1
     t.reservedFor = nil
     t.reservedUntil = now() + (settings.reserveTimeout or 180)
     addMember(t, src)
@@ -196,7 +198,8 @@ function Tables.Sit(src, tableId)
             return false, 'table_unavailable'
         end
         local invite = invites[src] and invites[src][t.id]
-        if not settings.allowFreeJoin and not (invite and invite > now()) then
+        local validInvite = invite and invite.expires > now() and invite.session == t.session
+        if not settings.allowFreeJoin and not validInvite then
             return false, 'not_your_table'
         end
         if Tables.MemberCount(t) >= t.capacity then return false, 'table_full' end
@@ -238,7 +241,8 @@ function Tables.Release(t, reason, by)
         Notify.Player(src, L('table_released_notice', t.label), 'info')
     end
     Hookah.RemoveByTable(t.id, reason)
-    Orders.OnTableReleased(t.id, reason)
+    Orders.OnTableReleased(t.id, t.session, reason)
+    for _, entry in pairs(invites) do entry[t.id] = nil end
     setOwner(t, nil)
     t.members, t.memberOrder, t.seats = {}, {}, {}
     t.partySize = 0
@@ -264,7 +268,7 @@ function Tables.Leave(src, opts)
         if unpaid > 0 then return false, 'unpaid_bill_leave', Utils.FormatMoney(unpaid) end
     end
 
-    local name = t.members[src] and t.members[src].name or GetPlayerName(src)
+    local name = t.members[src] and t.members[src].name or GetPlayerName(src) or '?'
     Orders.ClearServed(src)
     Hookah.ReleaseUser(src)
     removeMember(t, src)
@@ -322,7 +326,7 @@ function Tables.Invite(src, target)
     end
     if Tables.MemberCount(t) >= t.capacity then return false, 'table_full' end
     invites[target] = invites[target] or {}
-    invites[target][t.id] = now() + 300
+    invites[target][t.id] = { expires = now() + 300, session = t.session, from = Framework.GetCharName(src) }
     Notify.Player(target, L('invite_received', Framework.GetCharName(src), t.label), 'info')
     Sync.Player(target)
     Logger.Info('table', ('%s invited %s to %s'):format(Security.Describe(src), Security.Describe(target), t.label), { table = t.id })
@@ -334,10 +338,10 @@ function Tables.InvitesFor(src)
     local entry = invites[src]
     if not entry then return list end
     local current = now()
-    for tableId, expires in pairs(entry) do
+    for tableId, invite in pairs(entry) do
         local t = Tables.byId[tableId]
-        if expires > current and t and t.owner then
-            list[#list + 1] = { tableId = tableId, label = t.label, from = t.ownerName, expiresIn = expires - current }
+        if invite.expires > current and t and t.owner and invite.session == t.session then
+            list[#list + 1] = { tableId = tableId, label = t.label, from = invite.from, expiresIn = invite.expires - current }
         end
     end
     return list
@@ -358,7 +362,7 @@ function Tables.StaffAction(staffSrc, tableId, op, data)
         if not Staff.Require(staffSrc, 'release_table') then return false, 'no_permission' end
         if t.status == 'free' then return false, 'table_unavailable' end
         for _, src in ipairs(sortedMembers(t)) do
-            Orders.VoidFor(src, 'staff_release')
+            Orders.VoidFor(src, 'staff_release', t.id)
         end
         Tables.Release(t, 'staff_release', staffSrc)
     elseif op == 'reserve' then
@@ -385,6 +389,7 @@ function Tables.StaffAction(staffSrc, tableId, op, data)
         end
         t.reservedFor = nil
         t.partySize = t.capacity
+        t.session = t.session + 1
         t.reservedUntil = now() + (settings.reserveTimeout or 180)
         addMember(t, target)
         setOwner(t, target)
@@ -408,7 +413,6 @@ function Tables.Tick()
         if t.status == 'reserved' and t.reservedUntil and current >= t.reservedUntil then
             if t.owner then
                 Notify.Player(t.owner, L('table_reserve_expired', t.label), 'error')
-                for _, src in ipairs(sortedMembers(t)) do Orders.VoidFor(src, 'reserve_expired') end
                 Tables.Release(t, 'reserve_expired')
             else
                 t.reservedFor, t.reservedUntil = nil, nil
@@ -422,8 +426,9 @@ function Tables.Tick()
 
     -- expire old invites
     for src, entry in pairs(invites) do
-        for tableId, expires in pairs(entry) do
-            if expires <= current then entry[tableId] = nil end
+        for tableId, invite in pairs(entry) do
+            local t = Tables.byId[tableId]
+            if invite.expires <= current or not t or invite.session ~= t.session then entry[tableId] = nil end
         end
         if not next(entry) then invites[src] = nil end
     end
@@ -431,33 +436,21 @@ function Tables.Tick()
     if current < awayCheckAt or not Security.oneSync then return end
     awayCheckAt = current + 5
     local awayTimeout = settings.awayTimeout or 120
-    local grace = settings.walkoutGrace or 300
     for _, t in ipairs(Tables.list) do
         for _, src in ipairs(sortedMembers(t)) do
             local member = t.members[src]
-            local position = Security.GetCoords(src)
-            local away = position and not Utils.WithinRange(position, Config.Venue.center, settings.awayDistance or 45.0, 30.0)
-            if not away then
-                member.awaySince, member.walkoutWarned = nil, nil
-            else
-                member.awaySince = member.awaySince or current
-                local awayFor = current - member.awaySince
-                if awayFor >= awayTimeout then
-                    local unpaid = Orders.UnpaidTotalFor(src)
-                    if unpaid <= 0 then
+            -- a release earlier in this loop can empty the table
+            if member then
+                local position = Security.GetCoords(src)
+                local away = position and not Utils.WithinRange(position, Config.Venue.center, settings.awayDistance or 45.0, 30.0)
+                if not away then
+                    member.awaySince = nil
+                else
+                    member.awaySince = member.awaySince or current
+                    -- players with an open bill are handled by Orders.TickWalkouts (warning, grace, void + log)
+                    if current - member.awaySince >= awayTimeout and Orders.UnpaidTotalFor(src) <= 0 then
                         Notify.Player(src, L('removed_from_table_away', t.label), 'info')
                         Tables.Leave(src, { force = true, reason = 'away' })
-                    elseif awayFor >= awayTimeout + grace then
-                        Logger.Warn('security', ('Walkout: %s left with an unpaid bill of %s'):format(Security.Describe(src), unpaid), {
-                            player = src, identifier = member.identifier, amount = unpaid, table = t.id,
-                        })
-                        Orders.VoidFor(src, 'walkout')
-                        Notify.Player(src, L('walkout_voided'), 'error')
-                        Tables.Leave(src, { force = true, reason = 'walkout' })
-                    elseif not member.walkoutWarned then
-                        member.walkoutWarned = true
-                        Notify.Player(src, L('walkout_warning', Utils.FormatMoney(unpaid), Utils.FormatDuration(awayTimeout + grace - awayFor)), 'error')
-                        Logger.Warn('table', ('%s left the venue with an open bill of %s'):format(Security.Describe(src), unpaid), { player = src, table = t.id })
                     end
                 end
             end
@@ -527,6 +520,11 @@ function Tables.StaffList()
         }
     end
     return list
+end
+
+function Tables.Session(tableId)
+    local t = Tables.byId[tableId]
+    return t and t.session or nil
 end
 
 function Tables.MemberIds(tableId)

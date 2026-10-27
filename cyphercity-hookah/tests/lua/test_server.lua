@@ -235,10 +235,11 @@ local function frameworkSuite(kind)
             H.Eq(Orders.UnpaidTotalFor(1) - before, expected, 'flavour change added to bill')
         end
         H.Eq(session.flavors[1], 'blueberry', 'flavour updated')
+        H.Eq(session.refreshes, 1, 'a flavour change that restarts the timer counts as a refresh')
         local expires = session.expiresAt
         H.Ok(MOCK.Call(1, 'hookahAction', { action = 'coals', sessionId = session.id }))
         H.Eq(session.expiresAt, expires + Config.Hookah.coalRefresh.extendSeconds, 'coals extend time')
-        for _ = 2, Config.Hookah.coalRefresh.maxRefreshes do H.Ok(MOCK.Call(1, 'hookahAction', { action = 'coals', sessionId = session.id })) end
+        for _ = 3, Config.Hookah.coalRefresh.maxRefreshes do H.Ok(MOCK.Call(1, 'hookahAction', { action = 'coals', sessionId = session.id })) end
         H.Fails(MOCK.Call(1, 'hookahAction', { action = 'coals', sessionId = session.id }), 'hookah_max_refresh', 'max refresh')
         H.Fails(MOCK.Call(1, 'hookahAction', { action = 'teleport', sessionId = session.id }), 'invalid_request', 'unknown action')
         H.Ok(MOCK.Call(1, 'hookahAction', { action = 'end', sessionId = session.id }))
@@ -364,7 +365,7 @@ local function frameworkSuite(kind)
         local r = H.Ok(H.Order(1, { { id = 'wings_bbq', qty = 1 } }))
         MOCK.RemovePlayer(1)
         H.Eq(Orders.byId[r.data.id].paymentStatus, 'void', 'order voided')
-        H.True(H.LogContains('Disconnected with an unpaid bill'), 'walkout logged')
+        H.True(H.LogContains('Left with an unpaid bill'), 'walkout logged')
         H.True(Tables.Get(tableId).status == 'cleaning' or Tables.Get(tableId).status == 'free', 'table released')
     end)
 
@@ -644,6 +645,7 @@ local function edgeSuite()
             end,
             resources = { ['qb-inventory'] = 'started' },
             beforeLoad = function()
+                MOCK.given = nil
                 MOCK.exports['qb-inventory'] = {
                     GetItemCount = function() return 0 end,
                     CanAddItem = function() return true end,
@@ -660,8 +662,191 @@ local function edgeSuite()
         local r = H.Ok(H.Order(1, { { id = 'beer_bottle', qty = 2 }, { id = 'cola', qty = 1 } }))
         local order = Orders.byId[r.data.id]
         H.RunUntil(function() return order.status == 'completed' end, 60000)
-        H.True(MOCK.given and MOCK.given.item == 'beer' and MOCK.given.count == 2, 'real item given')
+        H.True(MOCK.given == nil, 'real items are held back until the bill is paid')
         H.Eq(Orders.ServedList(1)[1].id, 'cola', 'missing item served to the table instead')
+        local bill = H.Ok(MOCK.Call(1, 'getBill', {})).data
+        H.Ok(MOCK.Call(1, 'pay', { token = bill.token, account = 'bank', tip = 0 }))
+        H.True(MOCK.given and MOCK.given.item == 'beer' and MOCK.given.count == 2, 'real item given after payment')
+    end)
+end
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Regression tests for the independent code review findings
+-- ═════════════════════════════════════════════════════════════════════════════
+
+local function installQbBanking()
+    MOCK.society = {}
+    MOCK.resources['qb-banking'] = 'started'
+    MOCK.exports['qb-banking'] = {
+        GetAccount = function(_, account) return MOCK.society[account] and { balance = MOCK.society[account] } or nil end,
+        CreateJobAccount = function(_, account, balance) MOCK.society[account] = balance return true end,
+        AddMoney = function(_, account, amount) MOCK.society[account] = (MOCK.society[account] or 0) + amount return true end,
+        RemoveMoney = function(_, account, amount) MOCK.society[account] = (MOCK.society[account] or 0) - amount return true end,
+    }
+end
+
+local function reviewSuite()
+    H.Section('Review findings (regressions)')
+
+    H.Test('refunds: customer cannot cancel a paid order; staff refund returns tip and reverses society + stats', function()
+        H.BootServer({
+            framework = 'qbcore',
+            config = function(c) c.Payments.society = { enabled = true, system = 'qb-banking', account = 'hookah' } end,
+            beforeLoad = installQbBanking,
+        })
+        H.Player({ id = 1, bank = 5000 })
+        H.Player({ id = 12, job = 'hookah', grade = 3, isboss = true })
+        H.AtHostess(12)
+        H.Seat(1)
+        local r = H.Ok(H.Order(1, { { id = 'whiskey', qty = 2 } }))
+        local bill = H.Ok(MOCK.Call(1, 'getBill', {})).data
+        H.Ok(MOCK.Call(1, 'pay', { token = bill.token, account = 'bank', tip = 10 }))
+        local paid = product('whiskey').price * 2
+        local tip = math.floor(paid * 10 / 100 + 0.5)
+        H.Eq(H.Balance(1, 'bank'), 5000 - paid - tip, 'charged')
+        H.Eq(MOCK.society.hookah, paid + tip, 'society deposit')
+        H.Fails(MOCK.Call(1, 'cancelOrder', { orderId = r.data.id }), 'order_cannot_cancel', 'customer pay → cancel')
+        H.Ok(MOCK.Call(12, 'staffAction', { action = 'orderCancel', orderId = r.data.id }))
+        H.Eq(H.Balance(1, 'bank'), 5000, 'refund includes the tip share')
+        H.Eq(MOCK.society.hookah, 0, 'society deposit taken back')
+        H.Eq(Persistence.Report(1).today.revenue, 0, 'revenue reversed')
+        H.Eq(Persistence.Report(1).today.tips, 0, 'tips reversed')
+    end)
+
+    H.Test('invites: an old invite does not open the next party\'s table', function()
+        H.BootServer({ framework = 'qbcore' })
+        for id = 1, 3 do H.Player({ id = id }) end
+        local tableId = H.Seat(1)
+        H.AtTable(2, tableId)
+        H.Ok(MOCK.Call(1, 'invite', { target = 2 }))
+        H.Ok(MOCK.Call(1, 'leaveTable', {}))
+        MOCK.Advance((Config.TableSettings.cleaningTime + 2) * 1000)
+        H.Eq(H.Seat(3), tableId, 'next party gets the same table')
+        H.AtTable(2, tableId)
+        H.Fails(MOCK.Call(2, 'sit', { tableId = tableId }), 'not_your_table', 'stale invite rejected')
+        H.Eq(#Tables.InvitesFor(2), 0, 'stale invite no longer listed')
+    end)
+
+    H.Test('flood: hundreds of made-up callback names do not push real entries out of the log', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Player({ id = 1 })
+        Logger.Warn('security', 'MARKER real alert')
+        for i = 1, 300 do MOCK.Call(1, 'fake_' .. i, {}) end
+        H.True(H.LogContains('MARKER real alert'), 'earlier entry still in the log')
+        local count = 0
+        for _, entry in ipairs(Logger.Recent(500)) do if entry.category == 'security' then count = count + 1 end end
+        H.True(count < 10, 'flood produced only a few log lines (' .. count .. ')')
+    end)
+
+    H.Test('requireBillBeforeLeave = false: leaving keeps the bill as a personal tab (not voided)', function()
+        H.BootServer({ framework = 'qbcore', config = function(c) c.Payments.requireBillBeforeLeave = false end })
+        H.Player({ id = 1 })
+        H.Seat(1)
+        local r = H.Ok(H.Order(1, { { id = 'fries', qty = 1 } }))
+        H.RunUntil(function() return Orders.byId[r.data.id].status == 'completed' end, 60000)
+        H.Ok(MOCK.Call(1, 'leaveTable', {}))
+        H.Eq(Orders.byId[r.data.id].paymentStatus, 'unpaid', 'still owed')
+        local bill = H.Ok(MOCK.Call(1, 'getBill', { mode = 'personal' })).data
+        H.Eq(bill.subtotal, product('fries').price, 'can still pay it')
+    end)
+
+    H.Test('bar orders (allowWithoutTable): reservation expiry does not void them; walking out is tracked', function()
+        H.BootServer({ framework = 'qbcore', config = function(c) c.Orders.allowWithoutTable = true end })
+        H.Player({ id = 1 })
+        H.AtHostess(1)
+        local r = H.Ok(H.Order(1, { { id = 'beer_draft', qty = 1 } }))
+        H.Ok(MOCK.Call(1, 'requestTable', { partySize = 2 }))
+        MOCK.Advance((Config.TableSettings.reserveTimeout + 2) * 1000)
+        H.Eq(Orders.byId[r.data.id].paymentStatus, 'unpaid', 'bar tab survives the reservation expiry')
+        H.Far(1)
+        MOCK.Advance((Config.TableSettings.awayTimeout + Config.TableSettings.walkoutGrace + 15) * 1000)
+        H.Eq(Orders.byId[r.data.id].paymentStatus, 'void', 'voided after walking out')
+        H.True(H.LogContains('Walkout'), 'walkout logged')
+    end)
+
+    H.Test('character switch without disconnecting closes the previous character\'s table and bill', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Player({ id = 1, bank = 5000 })
+        local tableId = H.Seat(1)
+        local r = H.Ok(H.Order(1, { { id = 'shots_tray', qty = 1 } }))
+        H.store[1].PlayerData.citizenid = 'OTHER-CHARACTER'
+        H.store[1].PlayerData.money.bank = 300
+        local state = H.Ok(MOCK.Call(1, 'getState', {})).data
+        H.True(state.tableId == nil, 'new character is not at the old table')
+        H.Eq(Orders.UnpaidTotalFor(1), 0, 'new character does not inherit the bill')
+        H.Eq(Orders.byId[r.data.id].paymentStatus, 'void', 'old bill voided')
+        H.True(H.LogContains('character_switch'), 'logged')
+        H.True(Tables.Get(tableId).status ~= 'occupied', 'table released')
+    end)
+
+    H.Test('table tick survives a release in the middle of the away check', function()
+        H.BootServer({ framework = 'qbcore', config = function(c) c.TableSettings.ownerDropBehaviour = 'release' end })
+        for id = 1, 3 do H.Player({ id = id }) end
+        local tableId = H.Seat(1)
+        for _, id in ipairs({ 2, 3 }) do
+            H.AtTable(id, tableId)
+            H.Ok(MOCK.Call(1, 'invite', { target = id }))
+            H.Ok(MOCK.Call(id, 'sit', { tableId = tableId }))
+        end
+        for id = 1, 3 do H.Far(id) end
+        MOCK.Advance((Config.TableSettings.awayTimeout + 15) * 1000)
+        for id = 1, 3 do H.True(Tables.Of(id) == nil, 'player ' .. id .. ' removed') end
+    end)
+
+    H.Test('a new party does not see the previous party\'s orders', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Player({ id = 1 })
+        H.Player({ id = 2 })
+        local tableId = H.Seat(1)
+        H.Ok(H.Order(1, { { id = 'water', qty = 1 } }))
+        local bill = H.Ok(MOCK.Call(1, 'getBill', {})).data
+        H.Ok(MOCK.Call(1, 'pay', { token = bill.token, account = 'cash', tip = 0 }))
+        H.Ok(MOCK.Call(1, 'leaveTable', {}))
+        MOCK.Advance((Config.TableSettings.cleaningTime + 2) * 1000)
+        H.Eq(H.Seat(2), tableId, 'same table')
+        H.Eq(#Orders.ForPlayer(2), 0, 'previous party hidden')
+        H.Eq(Orders.UnpaidTotalForTable(tableId), 0, 'nothing carried over')
+    end)
+
+    H.Test('flavour changes cannot extend a hookah forever', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Player({ id = 1, bank = 50000 })
+        local tableId = H.Seat(1)
+        local r = H.Ok(H.Order(1, { { id = 'hookah_classic', qty = 1, flavors = { 'double_apple' } } }))
+        H.RunUntil(function() return Orders.byId[r.data.id].status == 'completed' end, 120000)
+        local session = Hookah.ForTable(tableId)[1]
+        for _ = 1, Config.Hookah.coalRefresh.maxRefreshes do
+            H.Ok(MOCK.Call(1, 'hookahAction', { action = 'flavor', sessionId = session.id, flavors = { 'grape_mint' } }))
+        end
+        H.Fails(MOCK.Call(1, 'hookahAction', { action = 'flavor', sessionId = session.id, flavors = { 'lemon_mint' } }), 'hookah_max_refresh')
+    end)
+
+    H.Test('inventory items are not handed out when the customer disconnects before paying', function()
+        H.BootServer({
+            framework = 'qbcore',
+            config = function(c)
+                c.Inventory = 'qb-inventory'
+                for _, item in ipairs(c.Menu) do
+                    if item.id == 'beer_bottle' then item.inventory = { give = { name = 'beer', count = 1 } } end
+                end
+            end,
+            resources = { ['qb-inventory'] = 'started' },
+            beforeLoad = function()
+                MOCK.given = nil
+                MOCK.exports['qb-inventory'] = {
+                    GetItemCount = function() return 0 end,
+                    CanAddItem = function() return true end,
+                    AddItem = function(_, src, item, count) MOCK.given = { src = src, item = item, count = count } return true end,
+                    RemoveItem = function() return true end,
+                }
+            end,
+        })
+        H.Player({ id = 1 })
+        H.Seat(1)
+        local r = H.Ok(H.Order(1, { { id = 'beer_bottle', qty = 3 } }))
+        H.RunUntil(function() return Orders.byId[r.data.id].status == 'completed' end, 60000)
+        MOCK.RemovePlayer(1)
+        H.True(MOCK.given == nil, 'no free items')
     end)
 end
 
@@ -672,3 +857,4 @@ for _, kind in ipairs({ 'qbcore', 'qbox', 'esx' }) do
     staffSuite(kind)
 end
 edgeSuite()
+reviewSuite()

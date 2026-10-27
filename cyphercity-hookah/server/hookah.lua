@@ -137,6 +137,10 @@ function Hookah.ChangeFlavor(src, sessionId, flavors, account)
     local clean, flavorErr = Catalog.ValidateFlavors(product, flavors)
     if not clean then return false, flavorErr end
 
+    -- a flavour change that restarts the timer counts towards the coal-refresh limit
+    if settings.refreshDuration and session.refreshes >= ((cfg().coalRefresh or {}).maxRefreshes or 3) then
+        return false, 'hookah_max_refresh'
+    end
     local labels = Catalog.FlavorLabels(clean)
     local price = (settings.price or 0)
     for _, flavorId in ipairs(clean) do price = price + Catalog.flavorById[flavorId].price end
@@ -147,6 +151,7 @@ function Hookah.ChangeFlavor(src, sessionId, flavors, account)
     session.flavorLabels = labels
     if settings.refreshDuration then
         session.expiresAt = now() + product.duration
+        session.refreshes = session.refreshes + 1
     end
     Logger.Info('hookah', ('Hookah #%d flavour changed to %s by %s'):format(session.id, table.concat(clean, ','), Security.Describe(src)))
     Sync.Hookahs(session.tableId)

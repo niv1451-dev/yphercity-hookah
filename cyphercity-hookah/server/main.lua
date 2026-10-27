@@ -34,6 +34,23 @@ function Business.CustomerAllowed(src)
     return job ~= nil and Utils.Contains(access.jobs or {}, job.name)
 end
 
+-- Multicharacter servers can switch characters without a disconnect. If the
+-- server id still holds the previous character's table / bill, treat it like a
+-- disconnect of that character (logged), so the new character starts clean.
+function Server.CheckIdentity(src)
+    if not Framework.name or Framework.name == 'standalone' then return end
+    local identifier = Framework.GetIdentifier(src)
+    local _, member = Tables.Of(src)
+    if (member and member.identifier ~= identifier) or Orders.HasStaleState(src, identifier) then
+        Logger.Warn('security', ('Character changed on %s — previous character\'s table and open bill were closed'):format(Security.Describe(src)), { player = src })
+        Orders.OnDropped(src, 'character_switch')
+        Tables.OnDropped(src)
+        Hookah.OnDropped(src)
+        Payments.OnDropped(src)
+        Sync.Player(src)
+    end
+end
+
 function Business.CanServe(src)
     if not Framework.IsLoaded(src) then return false, 'character_not_loaded' end
     if not Business.IsOpen() then return false, 'business_closed' end
@@ -133,6 +150,12 @@ CreateThread(function()
             safeTick('tables', Tables.Tick)
             safeTick('orders', Orders.Tick)
             safeTick('hookah', Hookah.Tick)
+            safeTick('walkouts', Orders.TickWalkouts)
+            if ticks % 5 == 0 then
+                safeTick('identity', function()
+                    for _, id in ipairs(GetPlayers()) do Server.CheckIdentity(tonumber(id)) end
+                end)
+            end
             if ticks % 2 == 0 then safeTick('discord', Logger.FlushDiscord) end
             safeTick('persistence', Persistence.Save)
         end
@@ -149,7 +172,7 @@ end)
 AddEventHandler('playerDropped', function()
     local src = source
     if not Server.ready then return end
-    Orders.OnDropped(src)
+    Orders.OnDropped(src, 'disconnect')
     Tables.OnDropped(src)
     Hookah.OnDropped(src)
     Payments.OnDropped(src)

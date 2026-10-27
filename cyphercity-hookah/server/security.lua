@@ -9,6 +9,7 @@ local hits = {}         -- [src][key] = { timestamps }
 local violations = {}   -- [src] = count
 local recentRequests = {} -- [src] = { list = {}, set = {} }
 local flaggedRate = {}  -- [src][key] = last flag time (avoid log spam)
+local flagLogged = {}   -- [src][reason] = last time this reason was written to the log
 
 function Security.Init()
     local mode = GetConvar('onesync', 'off')
@@ -72,11 +73,18 @@ end
 -- Records a suspicious / unauthorised attempt. Optional automatic kick.
 function Security.Flag(src, reason, data)
     violations[src] = (violations[src] or 0) + 1
-    local details = data or {}
-    details.player = src
-    details.identifier = Framework.name and Framework.GetIdentifier(src) or nil
-    details.violations = violations[src]
-    Logger.Warn('security', ('Unauthorised / invalid action "%s" by %s'):format(reason, Security.Describe(src)), details)
+    -- the same reason from the same player is written at most every 30 seconds
+    flagLogged[src] = flagLogged[src] or {}
+    local last = flagLogged[src][reason]
+    local clock = GetGameTimer()
+    if not last or clock - last > 30000 then
+        flagLogged[src][reason] = clock
+        local details = data or {}
+        details.player = src
+        details.identifier = Framework.name and Framework.GetIdentifier(src) or nil
+        details.violations = violations[src]
+        Logger.Warn('security', ('Unauthorised / invalid action "%s" by %s'):format(reason, Security.Describe(src)), details)
+    end
 
     local limit = Config.Security.violationsBeforeKick or 0
     if limit > 0 and violations[src] >= limit then
@@ -117,4 +125,5 @@ function Security.OnDropped(src)
     violations[src] = nil
     recentRequests[src] = nil
     flaggedRate[src] = nil
+    flagLogged[src] = nil
 end

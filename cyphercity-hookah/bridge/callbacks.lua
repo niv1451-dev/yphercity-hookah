@@ -33,13 +33,18 @@ if IsDuplicityVersion() then
     RegisterNetEvent(REQUEST, function(name, requestId, payload)
         local src = source
         if type(requestId) ~= 'number' then return end
+        -- invalid names share one strict rate limit, so they cannot flood the logs
         if type(name) ~= 'string' or #name > 48 then
-            Security.Flag(src, 'callback_bad_name', { name = tostring(name) })
+            if Security.RateLimit(src, 'invalid') then
+                Security.Flag(src, 'callback_bad_name', { name = tostring(name):sub(1, 48) })
+            end
             return reply(src, requestId, { ok = false, code = 'invalid_request' })
         end
         local handler = handlers[name]
         if not handler then
-            Security.Flag(src, 'callback_unknown', { name = name })
+            if Security.RateLimit(src, 'invalid') then
+                Security.Flag(src, 'callback_unknown', { name = name })
+            end
             return reply(src, requestId, { ok = false, code = 'invalid_request' })
         end
         if payload ~= nil and type(payload) ~= 'table' then
@@ -51,6 +56,7 @@ if IsDuplicityVersion() then
         if not Security.RateLimit(src, handler.rateKey) then
             return reply(src, requestId, { ok = false, code = 'rate_limited' })
         end
+        Server.CheckIdentity(src)
 
         local ok, result = pcall(handler.fn, src, payload or {})
         if not ok then

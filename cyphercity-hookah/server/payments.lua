@@ -162,18 +162,27 @@ function Payments.Pay(src, payload)
 
     local paymentId = newToken()
     local identifier = Framework.GetIdentifier(src)
-    for _, order in ipairs(orders) do
+    -- service and tip are split across the orders so a later refund returns the right share
+    local serviceLeft, tipLeft = service, tip
+    for index, order in ipairs(orders) do
+        local last = index == #orders
+        local serviceShare = last and serviceLeft or (subtotal > 0 and math.floor(service * order.subtotal / subtotal) or 0)
+        local tipShare = last and tipLeft or (subtotal > 0 and math.floor(tip * order.subtotal / subtotal) or 0)
+        serviceLeft, tipLeft = serviceLeft - serviceShare, tipLeft - tipShare
         order.paymentStatus = 'paid'
         order.paidAt = now()
         order.paidBy = src
         order.paidByIdentifier = identifier
         order.paidAccount = moneyMode == 'money' and account or nil
         order.paidAmount = order.subtotal
+        order.paidService = serviceShare
+        order.paidTip = tipShare
         order.paymentId = paymentId
         order.free = moneyMode == 'free'
         order.updatedAt = now()
     end
     paying[src] = nil
+    for _, order in ipairs(orders) do Orders.OnPaid(order) end
 
     local free = moneyMode == 'free'
     Persistence.RecordSale(orders, free and 0 or (subtotal + service), free and 0 or tip)
@@ -219,21 +228,26 @@ function Payments.ChargeDirect(src, account, amount, reason)
     return true, nil, nil, { id = newToken(), free = false, account = account }
 end
 
--- Refunds a paid order that was cancelled before being served.
+-- Refunds a paid order that was cancelled before being served (staff only).
+-- The payer gets back the order price plus its share of service and tip; the
+-- sale is removed from the stats and taken back out of the society account.
 -- Returns the refunded amount (0 when nothing was charged or the payer is offline).
 function Payments.Refund(order)
     order.paymentStatus = 'refunded'
     if order.free or not order.paidAccount or not order.paidAmount or order.paidAmount <= 0 then return 0 end
+    local amount = order.paidAmount + (order.paidService or 0) + (order.paidTip or 0)
     local payer = order.paidBy
     if payer and GetPlayerName(payer) and Framework.GetIdentifier(payer) == order.paidByIdentifier
-        and Framework.AddMoney(payer, order.paidAccount, order.paidAmount, 'cyphercity-hookah refund') then
-        Logger.Info('payment', ('Refunded %s for order #%d to %s'):format(Utils.FormatMoney(order.paidAmount), order.id, Security.Describe(payer)), { order = order.id })
-        return order.paidAmount
+        and Framework.AddMoney(payer, order.paidAccount, amount, 'cyphercity-hookah refund') then
+        Persistence.RecordRefund(order, order.paidAmount + (order.paidService or 0), order.paidTip or 0)
+        Banking.Withdraw(amount, 'cyphercity-hookah refund #' .. order.id)
+        Logger.Info('payment', ('Refunded %s for order #%d to %s'):format(Utils.FormatMoney(amount), order.id, Security.Describe(payer)), { order = order.id, amount = amount })
+        return amount
     end
     order.paymentStatus = 'refund_pending'
     Logger.Warn('payment', ('Refund of %s for order #%d could not be paid automatically (payer offline) — refund manually'):format(
-        Utils.FormatMoney(order.paidAmount), order.id
-    ), { order = order.id, identifier = order.paidByIdentifier, amount = order.paidAmount, account = order.paidAccount })
+        Utils.FormatMoney(amount), order.id
+    ), { order = order.id, identifier = order.paidByIdentifier, amount = amount, account = order.paidAccount })
     return 0
 end
 

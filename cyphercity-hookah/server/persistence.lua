@@ -84,6 +84,27 @@ function Persistence.RecordSale(orders, revenue, tips)
     dirty = true
 end
 
+-- Removes a refunded order from the day it is refunded on.
+function Persistence.RecordRefund(order, revenue, tips)
+    local date = today()
+    local day = Persistence.data.days[date]
+    if not day then
+        day = emptyDay()
+        Persistence.data.days[date] = day
+    end
+    day.revenue = day.revenue - (revenue or 0)
+    day.tips = day.tips - (tips or 0)
+    day.orders = math.max(0, day.orders - 1)
+    for _, line in ipairs(order.lines) do
+        local item = day.items[line.id]
+        if item then
+            item.qty = math.max(0, item.qty - line.qty)
+            item.revenue = item.revenue - line.total
+        end
+    end
+    dirty = true
+end
+
 function Persistence.Report(days)
     days = days or 7
     local list = {}

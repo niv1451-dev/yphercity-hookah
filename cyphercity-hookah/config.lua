@@ -575,6 +575,7 @@ Config.Security = {
         callWaiter   = { limit = 2,  window = 30 },
         invite       = { limit = 4,  window = 20 },
         staffAction  = { limit = 25, window = 10 },
+        invalid      = { limit = 3,  window = 30 }, -- בקשות עם שם לא קיים (ניסיונות פריצה)
     },
     violationsBeforeKick = 0,   -- כמה הפרות אבטחה עד הרחקה אוטומטית (0 = לעולם לא)
 }
