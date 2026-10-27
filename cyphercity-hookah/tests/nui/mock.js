@@ -35,6 +35,7 @@
     bank: 12400,
     staffLog: [],
     businessOpen: true,
+    waiterVisit: null, // { id, waiter } while the NPC waiter stands at the table
   };
   const tables = JSON.parse(JSON.stringify(D.tables));
   [1, 2, 5].forEach((id) => { const t = tables.find((x) => x.id === id); t.status = 'occupied'; t.members = 2; t.seated = 2; t.occupiedSeats[0] = t.occupiedSeats[1] = true; });
@@ -74,6 +75,7 @@
       staffRole: 'manager',
       perms: ['view_tables', 'reserve_table', 'clean_table', 'seat_guest', 'release_table', 'view_orders', 'update_order', 'take_order', 'cancel_order', 'request_payment', 'view_sales', 'manage_stock', 'toggle_business', 'view_logs'],
       businessOpen: S.businessOpen,
+      waiterVisit: S.waiterVisit,
     };
   }
 
@@ -264,7 +266,10 @@
         if (!Array.isArray(data.lines) || !data.lines.length) return fail('order_empty', 'ההזמנה ריקה.');
         const order = addOrder(data.lines, { note: data.note || null });
         progress(order);
+        const waiter = S.waiterVisit && S.waiterVisit.waiter;
+        S.waiterVisit = null;
         setTimeout(push, 10);
+        if (waiter) return ok({ id: order.id, total: order.subtotal, waiter }, `ההזמנה #${order.id} נרשמה אצל ${waiter} (${money(order.subtotal)}) ויצאה למטבח.`);
         return ok({ id: order.id, total: order.subtotal }, fill(D.messages.order_placed, { ID: order.id, TOTAL: money(order.subtotal) }));
       }
       case 'cancelOrder': {
@@ -314,7 +319,14 @@
         setTimeout(push, 10);
         return ok(null, data.action === 'use' ? null : 'בוצע.');
       }
-      case 'callWaiter': return ok(null, 'המלצר קיבל את הקריאה.');
+      case 'callWaiter':
+        // the NPC waiter walks over, then the menu opens with him "writing"
+        setTimeout(() => {
+          S.waiterVisit = { id: 1, waiter: 'דניאל' };
+          dispatch('open', { panel: 'menu', context: {}, me: me(), tables });
+        }, 400);
+        return ok(null, 'דניאל בדרך לשולחן שלכם.');
+      case 'waiterDone': S.waiterVisit = null; return ok();
       case 'staffOpen': return ok(staff());
       case 'setupSelect':
         if (data.tool) SETUP.tool = data.tool;

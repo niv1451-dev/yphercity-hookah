@@ -210,6 +210,7 @@
       search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
       clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
       check: '<path d="M5 12.5l4.2 4.2L19 7"/>',
+      pen: '<path d="M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="M14 7l3 3"/>',
     };
     return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ''}</svg>`;
   }
@@ -320,6 +321,11 @@
     line.qty += delta;
     if (line.qty <= 0) S.cart = S.cart.filter((l) => l.key !== key);
     render();
+  }
+
+  // Name of the NPC waiter standing at the guest's table waiting for their order (or null).
+  function waiterHere() {
+    return (S.me.waiterVisit && S.me.waiterVisit.waiter) || null;
   }
 
   function orderBlocker() {
@@ -647,6 +653,7 @@
           </div>
           ${S.staffOrder ? `<div style="padding:.8rem 1.2rem 0"><div class="notice staff-order"><span>${esc(t('staff_ordering_for', { table: S.staffOrder.label }))}</span><button class="btn sm ghost" type="button" data-action="staffOrderCancel">${esc(t('cancel'))}</button></div></div>` : ''}
           ${blocker ? `<div style="padding:.8rem 1.2rem 0"><div class="notice warn">${esc(t(blocker))}</div></div>` : ''}
+          ${waiterHere() && !S.staffOrder && !blocker ? `<div style="padding:.8rem 1.2rem 0"><div class="notice waiter-visit">${svgIcon('pen')}<span>${esc(t('waiter_visit_notice', { waiter: waiterHere(), send: t('cart_send_waiter', { waiter: waiterHere() }) }))}</span></div></div>` : ''}
           <div class="product-grid">${cards}</div>
         </section>
         ${renderCart(blocker)}
@@ -724,7 +731,7 @@
           <div class="total-row"><span class="muted">${esc(t('cart_subtotal'))}</span><span class="total">${money(cartTotal())}</span></div>
           <div class="faint small">${esc(t('cart_note'))}</div>
           <button class="btn gold block lg" type="button" data-action="placeOrder" ${!S.cart.length || blocker || sending ? 'disabled' : ''}>
-            ${sending ? spinner() + esc(t('cart_sending')) : esc(S.staffOrder ? t('cart_send_table', { table: S.staffOrder.label }) : t('cart_send'))}
+            ${sending ? spinner() + esc(t('cart_sending')) : esc(S.staffOrder ? t('cart_send_table', { table: S.staffOrder.label }) : waiterHere() ? t('cart_send_waiter', { waiter: waiterHere() }) : t('cart_send'))}
           </button>
         </div>
       </aside>`;

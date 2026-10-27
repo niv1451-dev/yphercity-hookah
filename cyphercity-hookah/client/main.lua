@@ -12,6 +12,7 @@ State = {
     staff = nil,
     inVenue = false,
     layoutRevision = nil,
+    waiterVisit = nil,   -- id of the waiter visit whose menu is open
 }
 
 Client = {}
@@ -107,6 +108,35 @@ end)
 
 RegisterNetEvent('cyphercity-hookah:client:waiterServe', function(tableId)
     if State.inVenue then Peds.Serve(tableId) end
+end)
+
+-- NPC waiter visit: the waiter walks to the table; when he gets there the menu
+-- opens for the guests of that table and he "writes" while they choose.
+local function waiterArrived(tableId, visit)
+    if (State.me or {}).tableId ~= tableId then return end
+    local takeOrder = Config.WaiterBehaviour.takeOrder or {}
+    if takeOrder.openMenu == false or (UI.open and UI.panel ~= 'menu') or UI.contextOpen then
+        Notify.Send(L('waiter_at_table', visit.waiter), 'info')
+        return
+    end
+    -- closing this menu without ordering tells the waiter "nothing for me" (see UI.Close)
+    State.waiterVisit = visit.id
+    if not UI.open then UI.Open('menu') end
+end
+
+RegisterNetEvent('cyphercity-hookah:client:waiterVisit', function(tableId, visit)
+    if type(visit) ~= 'table' then return end
+    local mine = (State.me or {}).tableId == tableId
+    if State.inVenue then
+        Peds.TakeOrder(tableId, visit, mine and function() waiterArrived(tableId, visit) end or nil)
+    elseif mine then
+        waiterArrived(tableId, visit)
+    end
+end)
+
+RegisterNetEvent('cyphercity-hookah:client:waiterVisitEnd', function(_, visitId)
+    Peds.EndVisit(visitId)
+    if State.waiterVisit == visitId then State.waiterVisit = nil end
 end)
 
 RegisterNetEvent('cyphercity-hookah:client:diagnostics', function(lines)

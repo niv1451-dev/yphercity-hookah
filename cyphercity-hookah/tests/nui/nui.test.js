@@ -189,6 +189,24 @@ const numberIn = (text) => Number(String(text).replace(/[^\d]/g, ''));
     await page.waitForSelector('.toast.success');
   });
 
+  await test('NPC waiter at the table: the menu says he is writing, the order is handed to him', async () => {
+    await open('?panel=orders');
+    await page.click('[data-action="callWaiter"]');
+    await page.waitForFunction(() => document.querySelector('#toasts').textContent.includes('בדרך לשולחן'));
+    await page.waitForSelector('.notice.waiter-visit');
+    assert.ok((await page.textContent('.notice.waiter-visit')).includes('דניאל'), 'who is writing');
+    await page.click('.add-btn[data-id="cola"]');
+    await page.click('.add-btn[data-id="fries"]');
+    assert.ok((await page.textContent('[data-action="placeOrder"]')).includes('מסרו לדניאל'), 'button hands the order to the waiter');
+    await shot(page, '21-waiter-takes-order');
+    await page.click('[data-action="placeOrder"]');
+    await page.waitForSelector('.orders-layout');
+    await page.waitForFunction(() => document.querySelector('#toasts').textContent.includes('נרשמה אצל דניאל'));
+    await page.click('.tab[data-panel="menu"]');
+    assert.strictEqual(await page.locator('.notice.waiter-visit').count(), 0, 'waiter went back');
+    assert.ok((await page.textContent('[data-action="placeOrder"]')).includes('שליחת הזמנה'), 'normal button again');
+  });
+
   await test('staff: a waiter takes an order for a table from the tables tab', async () => {
     await open('?panel=staff');
     await page.click('.chip[data-tab="tables"]');

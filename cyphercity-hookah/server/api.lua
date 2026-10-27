@@ -112,10 +112,11 @@ Callback.Register('placeOrder', function(src, payload)
     local ok, result, arg1, arg2 = Orders.Create(src, payload)
     if not ok then return fail(result, arg1, arg2) end
     local paid = result.paymentStatus == 'paid'
-    return success(
-        { id = result.id, total = result.subtotal, paid = paid },
-        L(paid and 'order_placed_paid' or 'order_placed', result.id, Utils.FormatMoney(result.subtotal))
-    )
+    -- an NPC waiter standing at the table "writes the order down"
+    local waiter = WaiterVisits.OnOrder(src, result)
+    local message = waiter and L('waiter_wrote_order', result.id, waiter, Utils.FormatMoney(result.subtotal))
+        or L(paid and 'order_placed_paid' or 'order_placed', result.id, Utils.FormatMoney(result.subtotal))
+    return success({ id = result.id, total = result.subtotal, paid = paid, waiter = waiter }, message)
 end)
 
 Callback.Register('cancelOrder', function(src, payload)
@@ -163,10 +164,26 @@ Callback.Register('callWaiter', function(src)
     local t = Tables.Of(src)
     if not t then return fail('no_table') end
     if not Security.IsNear(src, t.center, Config.Venue.radius) then return fail('too_far') end
-    Staff.NotifyAll('view_orders', L('staff_waiter_call', t.label), 'info')
-    TriggerClientEvent('cyphercity-hookah:client:waiterServe', -1, t.id)
-    Logger.Info('table', ('%s called a waiter to %s'):format(Security.Describe(src), t.label), { table = t.id })
-    return success(nil, L('waiter_called'))
+    -- real staff only exist when orders are not fully automatic
+    if Config.Orders.mode ~= 'auto' then
+        Staff.NotifyAll('view_orders', L('staff_waiter_call', t.label), 'info')
+    end
+    if not WaiterVisits.Enabled() then
+        TriggerClientEvent('cyphercity-hookah:client:waiterServe', -1, t.id)
+        Logger.Info('table', ('%s called a waiter to %s'):format(Security.Describe(src), t.label), { table = t.id })
+        return success(nil, L('waiter_called'))
+    end
+    if t.status ~= 'occupied' then return fail('not_seated') end
+    local visit, alreadyComing = WaiterVisits.Call(src, t)
+    if alreadyComing then return success(nil, L('waiter_already_coming', visit.waiter)) end
+    Logger.Info('table', ('%s called %s (waiter) to %s'):format(Security.Describe(src), visit.waiter, t.label), { table = t.id })
+    return success(nil, L('waiter_coming', visit.waiter))
+end)
+
+-- The guest closed the menu the waiter opened, without ordering.
+Callback.Register('waiterDone', function(src)
+    WaiterVisits.Pass(src)
+    return success()
 end)
 
 -- Staff ------------------------------------------------------------------------------

@@ -112,34 +112,26 @@ local function walkTo(ped, x, y, z, heading, timeout)
     return false
 end
 
-local function serveOnce(index, tableId)
-    local entry = Peds.waiters[index]
-    local def = Client.TableDef(tableId)
-    if not entry or not def or not DoesEntityExist(entry.ped) then return end
+-- Walks a waiter to (x, y) and turns him towards (fx, fy, fz). Returns true when he got there.
+local function goTo(entry, x, y, fx, fy, fz)
     local ped, home = entry.ped, entry.home
-    local behaviour = Config.WaiterBehaviour
-
-    -- stop 1.3 m from the table centre, on the side facing the waiter's post
-    local dx, dy = home.x - def.center.x, home.y - def.center.y
-    local length = math.sqrt(dx * dx + dy * dy)
-    if length < 0.01 then length = 1.0 end
-    local tx = def.center.x + dx / length * 1.3
-    local ty = def.center.y + dy / length * 1.3
-    local faceHeading = (math.deg(math.atan(-(def.center.x - tx), def.center.y - ty)) + 360.0) % 360.0
-
+    local heading = (math.deg(math.atan(-(fx - x), fy - y)) + 360.0) % 360.0
     FreezeEntityPosition(ped, false)
     ClearPedTasks(ped)
-    local arrived = walkTo(ped, tx, ty, home.z, faceHeading, behaviour.walkTimeout or 20000)
+    local arrived = walkTo(ped, x, y, home.z, heading, Config.WaiterBehaviour.walkTimeout or 20000)
     if arrived and DoesEntityExist(ped) then
-        TaskTurnPedToFaceCoord(ped, def.center.x, def.center.y, def.center.z, 1000)
+        TaskTurnPedToFaceCoord(ped, fx, fy, fz, 1000)
         Wait(1000)
-        local anim = behaviour.serveAnim
-        if anim and ClientUtil.PlayAnim(ped, anim.dict, anim.clip, anim.duration or 1500, 0) then
-            Wait(anim.duration or 1500)
-        end
     end
+    return arrived
+end
+
+-- Back to the post, frozen in place with the idle scenario.
+local function goHome(entry)
+    local ped, home = entry.ped, entry.home
     if DoesEntityExist(ped) then
-        walkTo(ped, home.x, home.y, home.z, home.w, behaviour.walkTimeout or 20000)
+        ClearPedTasks(ped)
+        walkTo(ped, home.x, home.y, home.z, home.w, Config.WaiterBehaviour.walkTimeout or 20000)
     end
     if DoesEntityExist(ped) then
         ClearPedTasks(ped)
@@ -150,23 +142,111 @@ local function serveOnce(index, tableId)
     end
 end
 
+-- Serving: stop 1.3 m from the table centre, on the side facing the waiter's post.
+local function serveOnce(entry, def)
+    local home = entry.home
+    local dx, dy = home.x - def.center.x, home.y - def.center.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.01 then length = 1.0 end
+    local tx = def.center.x + dx / length * 1.3
+    local ty = def.center.y + dy / length * 1.3
+    if goTo(entry, tx, ty, def.center.x, def.center.y, def.center.z) then
+        local anim = Config.WaiterBehaviour.serveAnim
+        if anim and ClientUtil.PlayAnim(entry.ped, anim.dict, anim.clip, anim.duration or 1500, 0) then
+            Wait(anim.duration or 1500)
+        end
+    end
+    goHome(entry)
+end
+
+-- Where the waiter stands to take an order: next to the guest who called him
+-- (a little outside their seat and to its side), facing the guest.
+local function standPoint(def, seatIndex, home)
+    local seat = seatIndex and def.seats and def.seats[seatIndex]
+    if seat then
+        local ox, oy = seat.x - def.center.x, seat.y - def.center.y
+        local length = math.sqrt(ox * ox + oy * oy)
+        if length < 0.01 then ox, oy, length = 0.0, 1.0, 1.0 end
+        ox, oy = ox / length, oy / length
+        return seat.x + ox * 0.45 - oy * 0.55, seat.y + oy * 0.45 + ox * 0.55, seat.x, seat.y
+    end
+    local dx, dy = home.x - def.center.x, home.y - def.center.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.01 then length = 1.0 end
+    return def.center.x + dx / length * 1.3, def.center.y + dy / length * 1.3, def.center.x, def.center.y
+end
+
+local endedVisits = {} -- [visitId] = true once the server ended the visit
+
+-- Taking an order: walk to the guests, "write" on the notepad while they pick
+-- in the menu, and go back once the visit ends (or after waiting long enough).
+local function takeOrderOnce(entry, def, job)
+    local x, y, fx, fy = standPoint(def, job.seat, entry.home)
+    goTo(entry, x, y, fx, fy, def.center.z) -- if blocked, he takes the order where he stopped
+    if endedVisits[job.id] then
+        goHome(entry)
+        return
+    end
+    if job.onArrive then job.onArrive() end
+    local scenario = (Config.WaiterBehaviour.takeOrder or {}).scenario
+    if scenario and DoesEntityExist(entry.ped) then TaskStartScenarioInPlace(entry.ped, scenario, 0, true) end
+    local deadline = GetGameTimer() + (job.wait or 60) * 1000
+    while not endedVisits[job.id] and GetGameTimer() < deadline and DoesEntityExist(entry.ped) do
+        Wait(250)
+    end
+    goHome(entry)
+end
+
+local function runJob(index, job)
+    local entry = Peds.waiters[index]
+    local def = Client.TableDef(job.tableId)
+    if not entry or not def or not DoesEntityExist(entry.ped) then
+        if job.kind == 'take' and job.onArrive and not endedVisits[job.id] then job.onArrive() end
+        return
+    end
+    if job.kind == 'take' then
+        if not endedVisits[job.id] then takeOrderOnce(entry, def, job) end
+    else
+        serveOnce(entry, def)
+    end
+end
+
+local function enqueue(index, job, first)
+    queues[index] = queues[index] or {}
+    local queue = queues[index]
+    if #queue >= 4 then return false end
+    if first then table.insert(queue, 1, job) else queue[#queue + 1] = job end
+    if walking[index] then return true end
+    walking[index] = true
+    CreateThread(function()
+        while queues[index] and #queues[index] > 0 do
+            runJob(index, table.remove(queues[index], 1))
+        end
+        walking[index] = nil
+    end)
+    return true
+end
+
 function Peds.Serve(tableId)
     if not Config.WaiterBehaviour.walkToTable then return end
     local index = Peds.WaiterForTable(tableId)
     if not index or not Peds.waiters[index] then return end
-    queues[index] = queues[index] or {}
-    local queue = queues[index]
-    if #queue >= 4 then return end
-    queue[#queue + 1] = tableId
-    if walking[index] then return end
-    walking[index] = true
-    CreateThread(function()
-        while queues[index] and #queues[index] > 0 do
-            local nextTable = table.remove(queues[index], 1)
-            serveOnce(index, nextTable)
-        end
-        walking[index] = nil
-    end)
+    enqueue(index, { kind = 'serve', tableId = tableId })
+end
+
+-- A guest called the waiter. onArrive runs when he stands at the table (or
+-- right away when there is no waiter to walk, so the guests can always order).
+function Peds.TakeOrder(tableId, visit, onArrive)
+    local index = Peds.WaiterForTable(tableId)
+    local job = { kind = 'take', tableId = tableId, id = visit.id, seat = visit.seat, wait = visit.wait, onArrive = onArrive }
+    -- guests waiting to order go before plates waiting to be carried
+    if not Config.WaiterBehaviour.walkToTable or not index or not Peds.waiters[index] or not enqueue(index, job, true) then
+        if onArrive then onArrive() end
+    end
+end
+
+function Peds.EndVisit(visitId)
+    if visitId then endedVisits[visitId] = true end
 end
 
 function Peds.Get(kind, index)

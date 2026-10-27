@@ -51,6 +51,8 @@ local STUBS = {
     IsPedInAnyVehicle = function() return false end,
     AddBlipForCoord = function() return 77 end,
     GetPedBoneIndex = function() return 10 end,
+    -- NPCs "walk" instantly to where they are sent
+    TaskGoStraightToCoord = function(ped, x, y, z) if entities[ped] then entities[ped].coords = vec3(x, y, z) end end,
 }
 
 local function installStubs()
@@ -124,7 +126,8 @@ H.Test('client: loads and registers NUI callbacks and net events', function()
         H.True(MOCK.nuiCallbacks[name] ~= nil, 'NUI callback ' .. name)
     end
     for _, name in ipairs({ 'tables', 'hookahs', 'playerState', 'staffState', 'notify', 'consume', 'hookahSmoke', 'hookahPuff',
-        'waiterServe', 'forceStand', 'openBill', 'tableAssigned', 'serverReady', 'diagnostics', 'layout', 'setupState' }) do
+        'waiterServe', 'forceStand', 'openBill', 'tableAssigned', 'serverReady', 'diagnostics', 'layout', 'setupState',
+        'waiterVisit', 'waiterVisitEnd' }) do
         H.True(MOCK.netEvents['cyphercity-hookah:client:' .. name], 'net event ' .. name)
     end
 end)
@@ -391,6 +394,61 @@ H.Test('client: placement mode — admin only, place key, table tools, test sit 
     local markersOff = natives.DrawMarker or 0
     MOCK.Advance(500)
     H.True((natives.DrawMarker or 0) - markersOff < 5, 'markers stop')
+end)
+
+
+H.Test('client: a called NPC waiter walks to the guest, writes on his notepad while the menu is open, then goes back', function()
+    bootClient()
+    MOCK.Advance(100)
+    MOCK.nuiCallbacks.ready({}, function() end)
+    player.coords = Config.Venue.center
+    MOCK.Advance(3000)
+    MOCK.FromServer('cyphercity-hookah:client:playerState', { tableId = 1, seat = 1, perms = {} })
+    respond('waiterDone', { ok = true })
+    local waiter = Peds.waiters[Peds.WaiterForTable(1)]
+    local home = waiter.home
+    calls = {}
+    MOCK.FromServer('cyphercity-hookah:client:waiterVisit', 1, { id = 5, members = { 1 }, seat = 1, waiter = 'דניאל', wait = 60 })
+    MOCK.Advance(2000)
+    local seat = Client.TableDef(1).seats[1]
+    local at = entities[waiter.ped].coords
+    H.True(Utils.Dist2D(at, seat) < 1.0 and Utils.Dist2D(at, seat) > 0.3, 'waiter stands right next to the guest')
+    local writing = false
+    for _, c in ipairs(calls) do
+        if c.name == 'TaskStartScenarioInPlace' and c.args[1] == waiter.ped and c.args[2] == 'WORLD_HUMAN_CLIPBOARD' then writing = true end
+    end
+    H.True(writing, 'writing on the notepad')
+    local opens = nuiMessages('open')
+    H.Eq(opens[#opens].data.panel, 'menu', 'menu opened for the guest when he arrived')
+    H.Eq(State.waiterVisit, 5, 'menu belongs to the visit')
+
+    -- closing the menu without ordering: "nothing for me"
+    MOCK.nuiCallbacks.close({}, function() end)
+    MOCK.Advance(100)
+    local told = false
+    for _, e in ipairs(MOCK.serverEvents) do if e.args[1] == 'waiterDone' then told = true end end
+    H.True(told, 'server told the guest passed')
+    H.True(State.waiterVisit == nil, 'visit menu closed')
+
+    MOCK.FromServer('cyphercity-hookah:client:waiterVisitEnd', 1, 5)
+    MOCK.Advance(2000)
+    H.True(Utils.Dist2D(entities[waiter.ped].coords, home) < 0.01, 'back at his post')
+
+    -- a visit to another table: the waiter walks, but no menu opens here
+    local before = #nuiMessages('open')
+    MOCK.FromServer('cyphercity-hookah:client:waiterVisit', 4, { id = 6, members = { 7 }, waiter = 'דניאל', wait = 60 })
+    MOCK.Advance(2000)
+    H.Eq(#nuiMessages('open'), before, 'not my table')
+    H.True(Utils.Dist2D(entities[waiter.ped].coords, home) > 1.0, 'he went to the other table')
+    MOCK.FromServer('cyphercity-hookah:client:waiterVisitEnd', 4, 6)
+    MOCK.Advance(2000)
+
+    -- the guest is busy in another screen: a message instead of switching screens
+    UI.Open('bill', { mode = 'personal' })
+    MOCK.FromServer('cyphercity-hookah:client:waiterVisit', 1, { id = 7, members = { 1 }, seat = 1, waiter = 'דניאל', wait = 60 })
+    MOCK.Advance(2000)
+    H.Eq(UI.panel, 'bill', 'screen not replaced')
+    H.True(State.waiterVisit == nil, 'no visit menu')
 end)
 
 H.Test('client: unknown natives used by the client scripts are reported', function()

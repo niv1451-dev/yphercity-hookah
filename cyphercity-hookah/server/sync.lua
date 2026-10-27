@@ -74,6 +74,7 @@ function Sync.BuildPlayerState(src)
         staffRole = role,
         perms = Staff.PermissionList(role),
         businessOpen = Business.IsOpen(),
+        waiterVisit = WaiterVisits.ForPlayer(src, t),
     }
     if t then
         for _, id in ipairs(Tables.MemberIds(t.id)) do

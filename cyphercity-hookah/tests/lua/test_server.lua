@@ -481,7 +481,7 @@ local function staffSuite(kind)
     end)
 
     H.Test(kind .. ': hybrid mode waits for staff, then the kitchen takes over', function()
-        H.BootServer({ framework = kind })
+        H.BootServer({ framework = kind, config = function(c) c.Orders.mode = 'hybrid' end })
         H.Player({ id = 1 })
         H.Player({ id = 10, job = 'hookah', grade = 1, onduty = true })
         H.Seat(1)
@@ -1277,6 +1277,134 @@ local function setupSuite()
     end)
 end
 
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- NPC waiters take the order at the table (no real staff needed)
+-- ═════════════════════════════════════════════════════════════════════════════
+
+local function waiterSuite()
+    H.Section('NPC waiters take orders at the table')
+
+    local VISIT = 'cyphercity-hookah:client:waiterVisit'
+    local VISIT_END = 'cyphercity-hookah:client:waiterVisitEnd'
+
+    local function seatTwo()
+        H.Player({ id = 1 })
+        H.Player({ id = 2 })
+        local tableId = H.Seat(1)
+        H.AtTable(2, tableId)
+        H.Ok(MOCK.Call(1, 'invite', { target = 2 }))
+        H.Ok(MOCK.Call(2, 'sit', { tableId = tableId }))
+        return tableId
+    end
+
+    H.Test('waiters: "call a waiter" brings the NPC to the guests and the menu order is written down', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Eq(Config.Orders.mode, 'auto', 'no real staff needed by default')
+        local tableId = seatTwo()
+        local name = WaiterVisits.WaiterName(tableId)
+        H.Eq(name, 'דניאל', 'the waiter of table 1 in config.lua')
+        local r = H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        H.Eq(r.message, L('waiter_coming', name), 'message')
+        local events = MOCK.EventsFor(VISIT, -1)
+        H.Eq(#events, 1, 'every client is told (they all see the same waiter)')
+        H.Eq(events[1].args[1], tableId, 'table')
+        local visit = events[1].args[2]
+        H.Eq(#visit.members, 2, 'both guests get the menu')
+        H.Eq(visit.seat, Tables.Get(tableId).members[1].seat, 'he stands next to the guest who called')
+        H.Eq(visit.waiter, name, 'waiter name')
+        H.Eq(H.Ok(MOCK.Call(2, 'getState', {})).data.waiterVisit.waiter, name, 'the menu shows who is writing')
+        r = H.Ok(MOCK.Call(2, 'callWaiter', {}))
+        H.Eq(r.message, L('waiter_already_coming', name), 'second call')
+        H.Eq(#MOCK.EventsFor(VISIT, -1), 1, 'no second waiter')
+
+        r = H.Ok(H.Order(1, { { id = 'hookah_classic', qty = 1, flavors = { 'double_apple' } }, { id = 'fries', qty = 1 } }))
+        H.Eq(r.data.waiter, name, 'order written down by the waiter')
+        H.Eq(r.message, L('waiter_wrote_order', r.data.id, name, Utils.FormatMoney(r.data.total)), 'message')
+        H.Eq(#MOCK.EventsFor(VISIT_END, -1), 0, 'still waiting for the second guest')
+        H.True(H.Ok(MOCK.Call(1, 'getState', {})).data.waiterVisit == nil, 'guest 1 is done')
+        H.Ok(MOCK.Call(2, 'waiterDone', {}))
+        local ended = MOCK.EventsFor(VISIT_END, -1)
+        H.True(#ended == 1 and ended[1].args[2] == visit.id, 'waiter goes back once everyone answered')
+        H.True(WaiterVisits.byTable[tableId] == nil, 'visit closed')
+
+        -- the automatic kitchen prepares it and the NPC waiter serves it, no staff involved
+        local order = Orders.byId[r.data.id]
+        H.True(H.RunUntil(function() return order.status == 'completed' end, 300000), 'order completed without staff')
+        H.True(#MOCK.EventsFor('cyphercity-hookah:client:waiterServe', -1) >= 1, 'waiter walked to the table to serve')
+        H.Eq(#Hookah.ForTable(tableId), 1, 'hookah on the table')
+        H.Ok(H.Order(1, { { id = 'water', qty = 1 } }))
+        H.True(H.Ok(MOCK.Call(1, 'getState', {})).data.waiterVisit == nil, 'later orders are normal menu orders')
+    end)
+
+    H.Test('waiters: the waiter does not wait forever — timeout, released table, guests who left', function()
+        H.BootServer({ framework = 'qbcore' })
+        local tableId = seatTwo()
+        H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        MOCK.Advance(1000)
+        H.True(WaiterVisits.byTable[tableId] ~= nil, 'waiting')
+        local limit = (Config.WaiterBehaviour.walkTimeout / 1000) * 2 + Config.WaiterBehaviour.takeOrder.waitSeconds
+        MOCK.Advance((limit + 2) * 1000)
+        H.True(WaiterVisits.byTable[tableId] == nil, 'timed out')
+        H.Eq(#MOCK.EventsFor(VISIT_END, -1), 1, 'clients told')
+
+        MOCK.Advance(31000) -- callWaiter rate limit window
+        H.Ok(MOCK.Call(2, 'callWaiter', {}))
+        H.Ok(MOCK.Call(2, 'leaveTable', {}))
+        MOCK.Advance(2000)
+        H.True(WaiterVisits.byTable[tableId] ~= nil, 'still waiting for the guest who stayed')
+        H.Ok(MOCK.Call(1, 'waiterDone', {}))
+        H.True(WaiterVisits.byTable[tableId] == nil, 'nobody left to serve')
+
+        MOCK.Advance(31000)
+        H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        H.Ok(MOCK.Call(1, 'leaveTable', {}))
+        MOCK.Advance(2000)
+        H.True(WaiterVisits.byTable[tableId] == nil, 'released table ends the visit')
+        H.Eq(#MOCK.EventsFor(VISIT_END, -1), 3, 'three visits ended')
+    end)
+
+    H.Test('waiters: only seated guests call; staff are only paged when real staff are used; can be turned off', function()
+        H.BootServer({ framework = 'qbcore' })
+        H.Player({ id = 1 })
+        H.Player({ id = 10, job = 'hookah', grade = 1, onduty = true })
+        H.AtHostess(1)
+        H.Ok(MOCK.Call(1, 'requestTable', { partySize = 2 }))
+        H.Fails(MOCK.Call(1, 'callWaiter', {}), 'not_seated', 'table reserved, nobody sat yet')
+        H.Fails(MOCK.Call(10, 'callWaiter', {}), 'no_table', 'not at a table')
+        H.AtTable(1, Tables.Of(1).id)
+        H.Ok(MOCK.Call(1, 'sit', { tableId = Tables.Of(1).id }))
+        MOCK.Advance(31000)
+        H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        local function paged()
+            for _, e in ipairs(MOCK.EventsFor('cyphercity-hookah:client:notify', 10)) do
+                if tostring(e.args[1]):find(L('staff_waiter_call', ''), 1, true) then return true end
+            end
+            return false
+        end
+        H.True(not paged(), 'no staff paging in automatic mode')
+        H.Ok(MOCK.Call(10, 'waiterDone', {}), 'someone who is not a guest: answered, nothing happens')
+        H.True(WaiterVisits.byTable[Tables.Of(1).id] ~= nil, 'visit untouched')
+        H.Ok(MOCK.Call(1, 'waiterDone', {}))
+
+        H.BootServer({ framework = 'qbcore', config = function(c) c.Orders.mode = 'hybrid' end })
+        H.Player({ id = 1 })
+        H.Player({ id = 10, job = 'hookah', grade = 1, onduty = true })
+        H.Seat(1)
+        H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        H.True(paged(), 'with real staff (hybrid) the staff are paged too')
+
+        H.BootServer({ framework = 'qbcore', config = function(c) c.WaiterBehaviour.takeOrder.enabled = false end })
+        H.Player({ id = 1 })
+        H.Seat(1)
+        local r = H.Ok(MOCK.Call(1, 'callWaiter', {}))
+        H.Eq(r.message, L('waiter_called'), 'old behaviour')
+        H.Eq(#MOCK.EventsFor(VISIT, -1), 0, 'no visit')
+        H.Eq(#MOCK.EventsFor('cyphercity-hookah:client:waiterServe', -1), 1, 'waiter only walks to the table')
+    end)
+end
+
 edgeSuite()
 reviewSuite()
+waiterSuite()
 setupSuite()

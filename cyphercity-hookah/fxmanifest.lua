@@ -35,6 +35,7 @@ server_scripts {
     'server/hookah.lua',
     'server/orders.lua',
     'server/payments.lua',
+    'server/waiters.lua',
     'server/diagnostics.lua',
     'server/setup.lua',
     'server/api.lua',

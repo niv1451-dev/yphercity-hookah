@@ -152,6 +152,7 @@ CreateThread(function()
             safeTick('orders', Orders.Tick)
             safeTick('hookah', Hookah.Tick)
             safeTick('walkouts', Orders.TickWalkouts)
+            safeTick('waiters', WaiterVisits.Tick)
             if ticks % 5 == 0 then
                 safeTick('identity', function()
                     for _, id in ipairs(GetPlayers()) do Server.CheckIdentity(tonumber(id)) end

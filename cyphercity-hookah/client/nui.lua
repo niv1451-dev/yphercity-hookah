@@ -60,6 +60,12 @@ function UI.Close()
     if UI.panel == 'staff' then
         CreateThread(function() Callback.Await('staffClose', {}) end)
     end
+    if State.waiterVisit then
+        -- the menu the waiter opened is closed: he does not wait for this guest any more
+        -- (the server ignores it when the guest already ordered)
+        State.waiterVisit = nil
+        CreateThread(function() Callback.Await('waiterDone', {}) end)
+    end
     UI.open = false
     UI.contextOpen = false
     UI.panel = nil
