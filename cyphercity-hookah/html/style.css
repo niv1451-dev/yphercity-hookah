@@ -29,7 +29,7 @@
   --gold-soft: rgba(201, 164, 92, 0.12);
   --text: #eee9df;
   --muted: #a39d92;
-  --faint: #6f6b64;
+  --faint: #908b82; /* ≥ 4.5:1 on every panel shade (WCAG AA for small text) */
   --success: #73b089;
   --success-soft: rgba(115, 176, 137, 0.14);
   --danger: #d4706a;
@@ -74,6 +74,8 @@ body.dev {
 
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* keyboard focus ring on every control; mouse clicks do not trigger it */
+:focus-visible { outline: 2px solid var(--gold-2); outline-offset: 2px; }
 img { display: block; }
 svg { display: block; }
 
@@ -306,7 +308,7 @@ kbd {
   user-select: text;
 }
 .input::placeholder { color: var(--faint); }
-.input:focus { border-color: var(--line-gold); box-shadow: 0 0 0 3px rgba(201, 164, 92, 0.1); }
+.input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201, 164, 92, 0.25); }
 select.input {
   appearance: none;
   padding-inline-end: 2.2rem;
@@ -338,6 +340,7 @@ select.input option { background: var(--panel-2); color: var(--text); }
 .stepper button { width: 1.9rem; height: 1.9rem; border: 0; background: transparent; color: var(--gold-2); font-size: 1.1rem; line-height: 1; }
 .stepper button:hover { background: var(--gold-soft); }
 .stepper button[disabled] { color: var(--faint); pointer-events: none; }
+.stepper button:focus-visible { outline-offset: -2px; } /* the stepper clips overflow */
 .stepper span { min-width: 1.8rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .notice {

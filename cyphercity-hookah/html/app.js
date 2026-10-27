@@ -356,7 +356,10 @@
     S.billAccount = S.orderAccount;
     S.party = Math.min(2, S.settings.maxPartySize || 6);
     document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
-    document.querySelectorAll('[data-t-title]').forEach((el) => { el.title = t(el.dataset.tTitle); });
+    document.querySelectorAll('[data-t-title]').forEach((el) => {
+      el.title = t(el.dataset.tTitle);
+      el.setAttribute('aria-label', el.title);
+    });
     const business = data.business || {};
     $('#brandTitle').textContent = business.name || '';
     if (business.subtitle) $('#brandSub').textContent = business.subtitle;
@@ -441,14 +444,14 @@
   // ── rendering ───────────────────────────────────────────
 
   function tabs() {
-    if (S.panel === 'setup') return `<button class="tab active" type="button" role="tab">${esc(t('tab_setup'))}</button>`;
+    if (S.panel === 'setup') return `<button class="tab active" type="button" role="tab" aria-selected="true">${esc(t('tab_setup'))}</button>`;
     const list = ['host', 'menu', 'orders', 'bill'];
     if (S.me.staffRole) list.push('staff');
     const bill = S.me.bill || {};
     const ordersDot = (S.me.served || []).length > 0;
     const billDot = (bill.personal || 0) > 0;
     return list.map((p) => `
-      <button class="tab ${S.panel === p ? 'active' : ''}" type="button" role="tab" data-action="tab" data-panel="${p}">
+      <button class="tab ${S.panel === p ? 'active' : ''}" type="button" role="tab" aria-selected="${S.panel === p}" data-action="tab" data-panel="${p}">
         ${esc(t('tab_' + p))}
         ${(p === 'orders' && ordersDot) || (p === 'bill' && billDot) ? '<i class="dot"></i>' : ''}
       </button>`).join('');
@@ -645,8 +648,8 @@
         <aside class="categories">${cats}</aside>
         <section class="products">
           <div class="toolbar">
-            <label class="search">${svgIcon('search')}<input class="input" id="menuSearch" type="text" autocomplete="off" placeholder="${esc(t('menu_search'))}" value="${esc(S.search)}"></label>
-            <select class="input" id="menuSort">
+            <label class="search">${svgIcon('search')}<input class="input" id="menuSearch" type="text" autocomplete="off" placeholder="${esc(t('menu_search'))}" aria-label="${esc(t('menu_search'))}" value="${esc(S.search)}"></label>
+            <select class="input" id="menuSort" aria-label="${esc(t('menu_sort_label'))}">
               ${['recommended', 'price_asc', 'price_desc', 'name'].map((s) => `<option value="${s}" ${S.sort === s ? 'selected' : ''}>${esc(t('menu_sort_' + s))}</option>`).join('')}
             </select>
             <div class="filters">${filterChips}</div>
@@ -698,9 +701,9 @@
           ${flavorText ? `<span class="ln-sub">${esc(flavorText)}</span>` : ''}
           <div class="ln-controls">
             <span class="stepper">
-              <button type="button" data-action="qty" data-key="${esc(line.key)}" data-delta="1">+</button>
+              <button type="button" data-action="qty" data-key="${esc(line.key)}" data-delta="1" aria-label="${esc(t('qty_more'))}">+</button>
               <span>${line.qty}</span>
-              <button type="button" data-action="qty" data-key="${esc(line.key)}" data-delta="-1">−</button>
+              <button type="button" data-action="qty" data-key="${esc(line.key)}" data-delta="-1" aria-label="${esc(t('qty_less'))}">−</button>
             </span>
             <span class="faint small">${money(unit)} ${esc(t('cart_unit'))}</span>
             <button class="link-btn" type="button" data-action="removeLine" data-key="${esc(line.key)}">${esc(t('cart_remove'))}</button>
@@ -727,7 +730,7 @@
               ${accounts.map((a) => `<button type="button" class="option ${S.orderAccount === a.id ? 'active' : ''}" data-action="orderAccount" data-id="${esc(a.id)}">${esc(a.label)}</button>`).join('')}
             </div>
             <div class="faint small">${esc(t('cart_pay_now'))}</div>` : ''}
-          <input class="input" id="orderNote" type="text" maxlength="80" autocomplete="off" placeholder="${esc(t('cart_note_placeholder'))}" value="${esc(S.note)}">
+          <input class="input" id="orderNote" type="text" maxlength="80" autocomplete="off" placeholder="${esc(t('cart_note_placeholder'))}" aria-label="${esc(t('cart_note_placeholder'))}" value="${esc(S.note)}">
           <div class="total-row"><span class="muted">${esc(t('cart_subtotal'))}</span><span class="total">${money(cartTotal())}</span></div>
           <div class="faint small">${esc(t('cart_note'))}</div>
           <button class="btn gold block lg" type="button" data-action="placeOrder" ${!S.cart.length || blocker || sending ? 'disabled' : ''}>
@@ -1248,9 +1251,9 @@
           <div class="se-height">
             <span>${esc(t('setup_seat_height'))}</span>
             <span class="stepper">
-              <button type="button" data-action="setupSeatZ" data-delta="0.05" ${disabled}>+</button>
+              <button type="button" data-action="setupSeatZ" data-delta="0.05" aria-label="${esc(t('setup_seat_up'))}" ${disabled}>+</button>
               <span>${esc(t('setup_cm', { n: (height > 0 ? '+' : '') + height }))}</span>
-              <button type="button" data-action="setupSeatZ" data-delta="-0.05" ${disabled}>−</button>
+              <button type="button" data-action="setupSeatZ" data-delta="-0.05" aria-label="${esc(t('setup_seat_down'))}" ${disabled}>−</button>
             </span>
             <span class="faint small">${esc(t('setup_seat_height_hint'))}</span>
           </div>
@@ -1413,7 +1416,7 @@
     return `
       <div class="modal-head">
         <div><h3>${esc(title)}</h3>${subtitle ? `<div class="muted small">${subtitle}</div>` : ''}</div>
-        <button class="icon-btn" type="button" data-action="closeModal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <button class="icon-btn" type="button" data-action="closeModal" title="${esc(t('close'))}" aria-label="${esc(t('close'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>`;
   }
 
@@ -1428,9 +1431,9 @@
         <div class="flavor-grid">${flavorButtons(product, m.selected, max)}</div>
         <div class="modal-foot" style="justify-content:space-between;align-items:center">
           <span class="stepper">
-            <button type="button" data-action="flavorQty" data-delta="1">+</button>
+            <button type="button" data-action="flavorQty" data-delta="1" aria-label="${esc(t('qty_more'))}">+</button>
             <span>${m.qty}</span>
-            <button type="button" data-action="flavorQty" data-delta="-1">−</button>
+            <button type="button" data-action="flavorQty" data-delta="-1" aria-label="${esc(t('qty_less'))}">−</button>
           </span>
           <button class="btn gold" type="button" data-action="flavorAdd" ${m.selected.length ? '' : 'disabled'}>
             ${m.selected.length ? t('flavor_add', { price: money(price) }) : esc(t('flavor_none'))}
@@ -1509,7 +1512,7 @@
     return `
       <div class="modal">
         ${modalHead(t('staff_reserve'), esc(t('staff_reserve_name')))}
-        <input class="input" id="reserveName" maxlength="32" autofocus placeholder="${esc(t('staff_reserve_placeholder'))}" value="${esc(m.name || '')}">
+        <input class="input" id="reserveName" maxlength="32" autofocus placeholder="${esc(t('staff_reserve_placeholder'))}" aria-label="${esc(t('staff_reserve_name'))}" value="${esc(m.name || '')}">
         <div class="modal-foot">
           <button class="btn ghost" type="button" data-action="closeModal">${esc(t('cancel'))}</button>
           <button class="btn gold" type="button" data-action="reserveConfirm">${esc(t('confirm'))}</button>

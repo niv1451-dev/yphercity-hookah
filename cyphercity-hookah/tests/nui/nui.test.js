@@ -350,6 +350,52 @@ const numberIn = (text) => Number(String(text).replace(/[^\d]/g, ''));
     await page.setViewportSize({ width: 1920, height: 1080 });
   });
 
+  await test('accessibility: names, selected tab, keyboard focus ring, text contrast', async () => {
+    await open('?panel=menu');
+    await page.click('.add-btn[data-id="fries"]');
+    const report = await page.evaluate(() => {
+      const unnamed = [];
+      document.querySelectorAll('#app .stepper button, #app .icon-btn, #app input, #app select').forEach((el) => {
+        const labelled = el.getAttribute('aria-label') || (el.id && document.querySelector(`label[for="${el.id}"]`));
+        if (!labelled) unnamed.push(el.outerHTML.slice(0, 80));
+      });
+      const tabs = Array.from(document.querySelectorAll('.tab'));
+      return {
+        unnamed,
+        selected: tabs.filter((el) => el.getAttribute('aria-selected') === 'true').map((el) => el.dataset.panel),
+        unmarked: tabs.filter((el) => !el.hasAttribute('aria-selected')).length,
+      };
+    });
+    assert.deepStrictEqual(report.unnamed, [], 'icon/symbol buttons and fields need an accessible name');
+    assert.deepStrictEqual(report.selected, ['menu']);
+    assert.strictEqual(report.unmarked, 0);
+
+    await page.focus('#menuSearch');
+    await page.keyboard.press('Tab'); // keyboard focus (not a click) on the sort menu, then a button
+    await page.keyboard.press('Tab');
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement;
+      const style = getComputedStyle(el);
+      return { tag: el.tagName, visible: el.matches(':focus-visible'), outline: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+    });
+    assert.strictEqual(ring.tag, 'BUTTON');
+    assert.ok(ring.visible && ring.outline === 'solid' && ring.width >= 2, 'visible focus ring: ' + JSON.stringify(ring));
+
+    // secondary ("faint") text must stay readable on the lightest panel shade
+    const contrast = await page.evaluate(() => {
+      const css = getComputedStyle(document.documentElement);
+      const lum = (hex) => {
+        const c = hex.trim().replace('#', '').match(/../g).map((h) => parseInt(h, 16) / 255)
+          .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      };
+      const a = lum(css.getPropertyValue('--faint'));
+      const b = lum(css.getPropertyValue('--panel-4'));
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    });
+    assert.ok(contrast >= 4.5, 'faint text contrast ' + contrast.toFixed(2));
+  });
+
   await test('no JavaScript errors were thrown', async () => {
     assert.deepStrictEqual(errors, []);
   });
