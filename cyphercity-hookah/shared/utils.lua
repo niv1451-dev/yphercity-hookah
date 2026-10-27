@@ -109,10 +109,12 @@ function Utils.FormatMoney(amount)
     repeat
         formatted, k = formatted:gsub('^(-?%d+)(%d%d%d)', '%1,%2')
     until k == 0
+    -- non-breaking space, so the amount and the sign never wrap apart
+    local gap = currency.space and '\u{00A0}' or ''
     if currency.position == 'after' then
-        return formatted .. (currency.symbol or '')
+        return formatted .. gap .. (currency.symbol or '')
     end
-    return (currency.symbol or '') .. formatted
+    return (currency.symbol or '') .. gap .. formatted
 end
 
 function Utils.Percent(amount, percent)

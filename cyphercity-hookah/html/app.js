@@ -139,9 +139,10 @@
   }
 
   function moneyText(amount) {
-    const currency = (S.init && S.init.currency) || { symbol: '$', position: 'before' };
+    const currency = (S.init && S.init.currency) || { symbol: '₪', position: 'after', space: true };
     const n = Math.floor(Number(amount) || 0).toLocaleString('en-US');
-    return currency.position === 'after' ? n + currency.symbol : currency.symbol + n;
+    const gap = currency.space ? '\u00A0' : '';
+    return currency.position === 'after' ? n + gap + currency.symbol : currency.symbol + gap + n;
   }
 
   function money(amount) {

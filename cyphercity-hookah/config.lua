@@ -29,8 +29,9 @@ Config.Debug = false            -- true = ציור אזורים, הדפסות ד
 Config.Locale = 'he'            -- 'he' (עברית) או 'en' (English)
 
 Config.Currency = {
-    symbol = '$',               -- לדוגמה '$' או '₪'
-    position = 'before',        -- 'before' = $100 , 'after' = 100₪
+    symbol = '₪',               -- סימן המטבע, לדוגמה '₪' או '$'
+    position = 'after',         -- 'after' = 100 ₪ , 'before' = $100
+    space = true,               -- רווח בין המספר לסימן (100 ₪ במקום 100₪)
 }
 
 -- ═══════════════════════════════════════════════════════════════════

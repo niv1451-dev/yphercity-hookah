@@ -233,7 +233,7 @@ add_ace group.admin cyphercity.hookah.admin allow
 * המחיר הוא **מספר שלם**, ו-`id` הוא **ייחודי** (אותיות באנגלית, ספרות, `_` או `-`).
 * פריט עם הגדרה שגויה **לא נטען**, ומופיעה עליו שגיאה ברורה בקונסולה וב-`hookahdiag`.
 * אייקונים זמינים בתיקייה `html/assets/icons`: hookah, tea, kettle, coffee, beer, cocktail, whiskey, wine, shot, lemonade, soda, water, nuts, edamame, fries, onion_rings, schnitzel, wings, cheese_sticks, cauliflower, platter. אפשר להוסיף קובץ ‎`.svg`/‎`.png` משלכם לאותה תיקייה.
-* מטבע: `Config.Currency` (לדוגמה `'₪'` עם `position = 'after'`).
+* מטבע: `Config.Currency`. ברירת המחדל היא שקל (`'₪'`), אחרי המספר ועם רווח (‎`100 ₪`‎). לדולר: `symbol = '$', position = 'before', space = false`.
 
 **השרת הוא היחיד שמחשב מחירים.** הלקוח שולח רק מזהי פריטים, כמויות וטעמים.
 

@@ -17,7 +17,8 @@
   const products = new Map(D.catalog.products.map((p) => [p.id, p]));
   const flavors = new Map(D.catalog.flavors.map((f) => [f.id, f]));
   const fill = (text, vars) => Object.keys(vars || {}).reduce((t, k) => t.split('%' + k + '%').join(vars[k]), text || '');
-  const money = (n) => (D.currency.position === 'after' ? n + D.currency.symbol : D.currency.symbol + n);
+  const gap = D.currency.space ? '\u00A0' : '';
+  const money = (n) => (D.currency.position === 'after' ? n + gap + D.currency.symbol : D.currency.symbol + gap + n);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const S = {
@@ -249,8 +250,8 @@
         if (data.action === 'logs') {
           const now = Math.floor(Date.now() / 1000);
           return ok([
-            { time: now - 40, level: 'info', category: 'order', message: 'Order #43 by Shira [7] at שולחן 3: $57' },
-            { time: now - 160, level: 'info', category: 'payment', message: 'Noam [1] paid $210 (בנק) for 2 order(s) [table]' },
+            { time: now - 40, level: 'info', category: 'order', message: 'Order #43 by Shira [7] at שולחן 3: 57 ₪' },
+            { time: now - 160, level: 'info', category: 'payment', message: 'Noam [1] paid 210 ₪ (בנק) for 2 order(s) [table]' },
             { time: now - 300, level: 'warn', category: 'security', message: 'Rate limit hit: placeOrder (Guest [22])' },
             { time: now - 640, level: 'info', category: 'table', message: 'שולחן 4: occupied → cleaning (empty)' },
           ]);
