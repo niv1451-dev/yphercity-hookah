@@ -75,15 +75,16 @@ def P(x, yz):
 def bone_table():
     """(name, parent, armature-space matrix) in the vanilla Inductor order."""
     b = build
-    yc, zc = b.STEM_TOP[0] - 0.002, b.STEM_TOP[1] + 0.017
-    pe_r = (b.BB[0] + 0.17 * math.cos(math.radians(-60)), b.BB[1] + 0.17 * math.sin(math.radians(-60)))
-    pe_l = (b.BB[0] + 0.17 * math.cos(math.radians(120)), b.BB[1] + 0.17 * math.sin(math.radians(120)))
+    yc, zc = b.BAR[0], b.BAR[1]                     # handlebar grip line
+    pe_r = (b.BB[0] + 0.17 * math.cos(math.radians(b.CRANK_DEG)), b.BB[1] + 0.17 * math.sin(math.radians(b.CRANK_DEG)))
+    pe_l = (b.BB[0] - (pe_r[0] - b.BB[0]), b.BB[1] - (pe_r[1] - b.BB[1]))
     head = Matrix.Translation(P(0, b.HT_TOP)) @ STEER
     t = lambda v: Matrix.Translation(v)
+    seat = (b.SEAT_B[0] - 0.035, b.SEAT_B[1] + 0.165)   # top of the saddle, where the rider sits
     return [
         ('chassis', None, t(P(0, (0, ORIGIN_Z)))),
         ('chassis_lowlod', 'chassis', t(P(0, (0, ORIGIN_Z)))),
-        ('seat_f', 'chassis', t(P(0, (-0.08, 0.87)))),
+        ('seat_f', 'chassis', t(P(0, seat))),
         ('crank', 'chassis', t(P(0, b.BB))),
         ('pedal_l', 'crank', t(P(-0.14, pe_l))),
         ('pedal_r', 'crank', t(P(0.185, pe_r))),
@@ -95,8 +96,8 @@ def bone_table():
         ('wheelmeshbk_r_l2', 'wheel_lr', t(P(0, b.RA))),
         ('wheelmeshbk_r_ng', 'wheel_lr', t(P(0, b.RA))),
         ('handlebars', 'chassis', head),
-        ('hbgrip_l', 'handlebars', t(Vector((-0.27, yc - 0.08, zc + 0.045 - ORIGIN_Z)))),
-        ('hbgrip_r', 'handlebars', t(Vector((0.27, yc - 0.08, zc + 0.045 - ORIGIN_Z)))),
+        ('hbgrip_l', 'handlebars', t(Vector((-0.27, yc, zc - ORIGIN_Z)))),
+        ('hbgrip_r', 'handlebars', t(Vector((0.27, yc, zc - ORIGIN_Z)))),
         ('forks_u', 'chassis', Matrix.Translation(P(0, b.HB)) @ STEER),
         ('forks_l', 'forks_u', Matrix.Translation(P(0, b.add(b.FA, b.UP, 0.24))) @ STEER),
         ('wheel_lf', 'forks_l', t(P(0, b.FA))),
@@ -104,7 +105,7 @@ def bone_table():
         ('wheelmeshbk_f_l1', 'wheel_lf', t(P(0, b.FA))),
         ('wheelmeshbk_f_l2', 'wheel_lf', t(P(0, b.FA))),
         ('wheelmeshbk_f_ng', 'wheel_lf', t(P(0, b.FA))),
-        ('dials', 'chassis', t(Vector((0, yc - 0.02, zc + 0.045 - ORIGIN_Z)))),
+        ('dials', 'chassis', t(Vector((0, b.STEM_TOP[0] - 0.006, b.STEM_TOP[1] + 0.068 - ORIGIN_Z)))),
         ('headlight_l', 'chassis', t(P(0, b.HEADLIGHT))),
         ('chassis_dummy', 'chassis', t(P(0, (0, ORIGIN_Z)))),
     ]
@@ -112,7 +113,7 @@ def bone_table():
 
 # Which bone each modelled part rides on in game (the steering parts split between
 # handlebars and forks_u, both of which the game turns with the steering input).
-HANDLEBAR_PARTS = ('stem', 'bar_', 'handlebar', 'grip', 'lever', 'throttle', 'remote', 'display', 'phone',
+HANDLEBAR_PARTS = ('stem', 'bar_', 'handlebar', 'grip', 'lever', 'throttle', 'bell', 'remote', 'display', 'phone',
                    'decal_logo_stem')
 
 
@@ -233,17 +234,17 @@ def main():
     info = textures.generate(tex_dir)
     textures.write_ytd_xml(info, os.path.join(out, 'onebike.ytd.xml'))
 
-    lib.reset_scene()
+    lib.reset_scene(keep_prefs=True)       # keep the user's add-ons (Sollumz extension on Windows)
     lib.make_materials()
     sz.enable()
-    SollumType = importlib.import_module('sollumz_dev.sollumz_properties').SollumType
-    LODLevel = importlib.import_module('sollumz_dev.sollumz_properties').LODLevel
-    bh = importlib.import_module('sollumz_dev.tools.blenderhelper')
-    dh = importlib.import_module('sollumz_dev.tools.drawablehelper')
-    boundh = importlib.import_module('sollumz_dev.tools.boundhelper')
-    meshh = importlib.import_module('sollumz_dev.tools.meshhelper')
-    colmats = importlib.import_module('sollumz_dev.ybn.collision_materials')
-    shader_mats_mod = importlib.import_module('sollumz_dev.ydr.shader_materials')
+    mod = lambda name: importlib.import_module(sz.PKG + '.' + name)
+    SollumType = mod('sollumz_properties').SollumType
+    LODLevel = mod('sollumz_properties').LODLevel
+    bh = mod('tools.blenderhelper')
+    dh = mod('tools.drawablehelper')
+    meshh = mod('tools.meshhelper')
+    colmats = mod('ybn.collision_materials')
+    shader_mats_mod = mod('ydr.shader_materials')
 
     bones = bone_table()
     bone_mats = {name: m for name, _p, m in bones}
@@ -337,12 +338,13 @@ def main():
         bh.add_child_of_bone_constraint(obj, frag, bone)
 
     z = -ORIGIN_Z
-    boxes = [
-        ('frame', (0.12, 0.80, 0.50), (0.0, 0.07, 0.60 + z), 12.0),
-        ('rear', (0.24, 0.70, 0.14), (0.0, -0.62, 0.72 + z), 6.0),
-        ('cockpit', (0.70, 0.36, 0.40), (0.0, 0.33, 1.12 + z), 5.0),
-        ('saddle', (0.22, 0.27, 0.10), (0.0, -0.07, 0.86 + z), 2.0),
-        ('drive', (0.42, 0.30, 0.24), (0.0, 0.02, 0.30 + z), 5.0),
+    boxes = [   # matched to the photo-measured model (see build.py)
+        ('frame', (0.12, 0.76, 0.42), (0.0, 0.12, 0.63 + z), 12.0),
+        ('rear', (0.22, 0.52, 0.12), (0.0, -0.64, 0.72 + z), 6.0),
+        ('battery', (0.10, 0.20, 0.42), (0.0, -0.30, 0.54 + z), 5.0),
+        ('cockpit', (0.68, 0.30, 0.46), (0.0, 0.43, 1.15 + z), 5.0),
+        ('saddle', (0.22, 0.27, 0.10), (0.0, -0.227, 0.88 + z), 2.0),
+        ('drive', (0.30, 0.34, 0.22), (0.0, -0.11, 0.31 + z), 5.0),
     ]
     for name, size, center, mass in boxes:
         obj = bh.create_blender_object(SollumType.BOUND_BOX, f'col_{name}')
@@ -350,13 +352,20 @@ def main():
         bound(obj, 'chassis', car_metal, mass)
     for bone in WHEEL_BONES:
         obj = bh.create_blender_object(SollumType.BOUND_DISC, f'col_{bone}')
-        meshh.create_disc(obj.data, radius=0.33, length=0.10)
+        meshh.create_disc(obj.data, radius=build.TYRE_R, length=0.10)
         bound(obj, bone, rubber, 7.0)
 
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'onebike_gta.blend'))
+    # CodeWalker XML always; binary .yft too when Sollumz has PyMateria (the Windows install has it)
+    formats = {'CWXML'}
+    try:
+        import pymateria  # noqa: F401
+        formats.add('NATIVE')
+    except ImportError:
+        pass
     res = bpy.ops.sollumz.export_assets(directory=out + os.sep, direct_export=True, use_custom_settings=True,
-                                        target_formats={'CWXML'}, target_versions={'GEN8'}, limit_to_selected=False)
-    print('export result', res, flush=True)
+                                        target_formats=formats, target_versions={'GEN8'}, limit_to_selected=False)
+    print('export result', res, sorted(formats), flush=True)
 
 
 main()

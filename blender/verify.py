@@ -18,7 +18,7 @@ import sz  # noqa: E402
 def main():
     src, out = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    lib.reset_scene(keep_prefs=True)       # keep the user's add-ons (Sollumz extension on Windows)
     sz.enable()
     res = bpy.ops.sollumz.import_assets(directory=src + os.sep, files=[{'name': 'onebike.yft.xml'}])
     print('import', res)

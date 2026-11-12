@@ -15,6 +15,7 @@ from lib import V
 RA = (-0.648, 0.33)
 FA = (0.648, 0.33)
 BB = (-0.083, 0.335)
+CRANK_DEG = 21.0                        # right crank angle in the photo (forward and up)
 PV = (-0.236, 0.305)
 SN = (-0.144, 0.525)
 FM = (-0.040, 0.604)
@@ -805,7 +806,7 @@ def cockpit():
     lib.box('display_housing', (0.108, 0.066, 0.024), 'plastic_gloss', 'forks_u', matrix=dm, bevel=0.009)
     lib.box('display_bezel', (0.1, 0.058, 0.002), 'alloy_black', 'forks_u',
             matrix=dm @ Matrix.Translation(V((0, 0, 0.0122))), bevel=0.001)
-    lib.rect_uv('display_screen', dc + n_ * 0.0134, u_, v_, 0.088, 0.048, 'screen_display', 'forks_u')
+    lib.rect_uv('display_screen', dc + n_ * 0.0134, u_, v_, 0.092, 0.046, 'screen_display', 'forks_u')
     lib.box('display_mount', (0.022, 0.03, 0.05), 'plastic_black', 'forks_u',
             matrix=lib.basis(u_, n_.cross(u_), n_, dc - n_ * 0.03 + v_ * 0.004), bevel=0.004)
 
@@ -1019,7 +1020,7 @@ def drivetrain():
                  bevel=0.002)
 
     # crank arms and pedals
-    for s, ang, bone in ((1, 21.0, 'pedal_r'), (-1, 201.0, 'pedal_l')):
+    for s, ang, bone in ((1, CRANK_DEG, 'pedal_r'), (-1, CRANK_DEG + 180.0, 'pedal_l')):
         a = math.radians(ang)
         pe = (BB[0] + 0.17 * math.cos(a), BB[1] + 0.17 * math.sin(a))
         x = 0.117 if s > 0 else -0.072

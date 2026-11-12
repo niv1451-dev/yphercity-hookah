@@ -45,8 +45,8 @@
       <AllowJoyriding value="true" />
       <AllowSundayDriving value="true" />
       <AllowBodyColorMapping value="true" />
-      <wheelScale value="0.330000" />
-      <wheelScaleRear value="0.330000" />
+      <wheelScale value="0.295000" />
+      <wheelScaleRear value="0.295000" />
       <dirtLevelMin value="0.000000" />
       <dirtLevelMax value="0.600000" />
       <envEffScaleMin value="0.000000" />

@@ -14,9 +14,9 @@ from mathutils import Matrix, Vector
 V = Vector
 FONT_SCRIPT = '/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf'
 FONT_SANS = '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
-# Windows has no GNU FreeFont: the logo script is closest to Edwardian Script (the 'B' loop), FreeSans is an
-# Arial clone.
-WIN_FONTS = {'FreeSerifBoldItalic.ttf': 'ITCEDSCR.TTF', 'FreeSansBold.ttf': 'arialbd.ttf'}
+# Windows has no GNU FreeFont: the logo script is closest to French Script (looped 'B', clean 'ne' without long
+# hairlines), FreeSans is an Arial clone.
+WIN_FONTS = {'FreeSerifBoldItalic.ttf': 'FRSCRIPT.TTF', 'FreeSansBold.ttf': 'arialbd.ttf'}
 
 COLLECTION = None
 MATS = {}
@@ -27,8 +27,12 @@ def n(value, lo=3):
     return max(lo, int(round(value * DETAIL)))
 
 
-def reset_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+def reset_scene(keep_prefs=False):
+    """Empty scene. keep_prefs keeps the user's preferences (and so their installed add-ons, e.g. Sollumz)."""
+    if keep_prefs:
+        bpy.ops.wm.read_homefile(use_empty=True)
+    else:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
     MATS.clear()
     new_collection('OneBike')
 
@@ -117,11 +121,7 @@ def make_materials():
     import os
     import textures
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'display.png')
-    from PIL import Image
-    sq = textures.display_image()                  # round gauge, centred on a wide black colour screen
-    wide = Image.new('RGBA', (int(sq.height * 1.83), sq.height), (0, 0, 0, 255))
-    wide.paste(sq, ((wide.width - sq.width) // 2, 0))
-    wide.save(path)
+    textures.display_wide().save(path)             # round gauge centred on the 2:1 colour screen
     image_material('screen_display', path, 1.8)
 
 
@@ -601,14 +601,14 @@ def logo(name, center, read_dir, side_sign, offset_x, size, mat, bone):
     """The One Bike badge as on the bike: a round emblem with a leaf swoosh standing in for the 'O',
     followed by 'ne Bike' in a calligraphic script, on a +/-X facing surface."""
     m = side_matrix(center, read_dir, side_sign, offset_x)
-    ob = text(name, 'ne Bike', size * 1.6, mat, bone, m, bold=0.03)    # the script has a small x-height
+    ob = text(name, 'ne Bike', size * 1.6, mat, bone, m, bold=0.010)   # the script has a small x-height
     if ob is None:
         return
     bpy.context.view_layer.update()
     w = ob.dimensions.x
     d = V(m.col[0][:3])
-    ring_r = 0.42 * size
-    total = w + 2 * ring_r + 0.05 * size
+    ring_r = 0.52 * size
+    total = w + 2 * ring_r - 0.02 * size
     ob.matrix_world = Matrix.Translation(d * (total / 2 - w / 2)) @ m
     emblem_m = Matrix.Translation(d * -(total / 2 - ring_r) + V(m.col[1][:3]) * (0.06 * size)) @ m
     bm = bmesh.new()
@@ -638,7 +638,7 @@ def logo(name, center, read_dir, side_sign, offset_x, size, mat, bone):
     bm.to_mesh(me)
     bm.free()
     link(bpy.data.objects.new(name + '_ring', me), bone, mat)
-    text(name + '_mark', 'S', size * 0.62, mat, bone, emblem_m, bold=0.03)
+    text(name + '_mark', 'S', size * 0.62, mat, bone, emblem_m, font_path=FONT_SANS)  # bold S inside the ring
 
 
 # ------------------------------------------------------------------- scene

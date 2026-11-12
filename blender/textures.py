@@ -132,8 +132,16 @@ def display_image(size=512, speed=25, pas=3, battery=4, odo='1248.6', trip='12.4
     return img
 
 
+def display_wide():
+    """The rectangular colour display: round gauge centred on a 2:1 black screen (power-of-two for the game)."""
+    sq = display_image(512)
+    wide = Image.new('RGBA', (1024, 512), (0, 0, 0, 255))
+    wide.paste(sq, (256, 0))
+    return wide
+
+
 TEXTURES = {
-    'onebike_display': display_image,
+    'onebike_display': display_wide,
     'onebike_white': lambda: solid((255, 255, 255)),
     'onebike_spec': lambda: solid((190, 190, 190)),
     'onebike_dirt': lambda: noise((118, 104, 86), 30, 64, 1.2, 3),
