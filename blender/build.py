@@ -18,7 +18,7 @@ BB = (-0.083, 0.335)
 PV = (-0.236, 0.305)
 SN = (-0.144, 0.525)
 FM = (-0.040, 0.604)
-HEAD = math.radians(17.0)
+HEAD = math.radians(20.0)
 UP = (-math.sin(HEAD), math.cos(HEAD))                             # steering axis, upward
 FWD = (UP[1], -UP[0])                                              # perpendicular, forward
 
@@ -30,25 +30,19 @@ def on_axis(z):
 
 HB = on_axis(0.79)                     # head tube bottom
 HT_TOP = on_axis(0.91)                 # head tube top
-HT_MID = on_axis(0.861)                # where the main tube meets the head tube
+HT_MID = on_axis(0.846)                # where the main tube meets the head tube
 HG = (0.072, 0.598)                    # folding hinge
 MT_A = (0.094, 0.626)                  # main tube start at the hinge
 SEAT_A, SEAT_B = (-0.140, 0.565), (-0.190, 0.752)   # seat tube bottom end and clamp
-STEM_TOP = (0.30, 1.265)
-TYRE_R = 0.33
+TYRE_R = 0.2954                        # over the tread blocks
+GROUND_Z = RA[1] - TYRE_R + 0.003      # road surface (fat tyres squash a little at the contact patch)
 RACK_Z = 0.705          # top rail of the rear rack
 
 
-def _front_geometry():
-    """Fork leg tops, steering axis point at crown height, crown centre and headlight."""
-    legs_top = (FA[0] + UP[0] * (HB[1] - 0.03 - FA[1]) / UP[1], HB[1] - 0.03)
-    axis_at = (HB[0] + (HB[1] - legs_top[1]) / UP[1] * -UP[0], legs_top[1])
-    cc = (axis_at[0] + (legs_top[0] - axis_at[0]) * 0.55, legs_top[1])
-    hl = (cc[0] + FWD[0] * 0.06 + UP[0] * 0.035, cc[1] + FWD[1] * 0.06 + UP[1] * 0.035)
-    return legs_top, axis_at, cc, hl
-
-
-HEADLIGHT = (_front_geometry()[3][0] + 0.0175, _front_geometry()[3][1])   # headlight lens, for the exporter
+CROWN_UP_Z, CROWN_LO_Z = 0.930, 0.773   # double-crown fork: yellow upper and lower crowns (centre heights)
+LEG_X = 0.085
+HL = (0.640, 0.712)                     # headlight body centre, ahead of the lower crown
+HEADLIGHT = (HL[0] + 0.03, HL[1])       # headlight lens, for the exporter
 
 
 def P(x, yz):
@@ -87,36 +81,38 @@ def tube_matrix(a3, b3, loc3):
 def wheel(prefix, c, bone, rear):
     cy, cz = c
     center = (0.0, cy, cz)
-    half = [(0.036, 0.206), (0.040, 0.214), (0.046, 0.228), (0.050, 0.245), (0.0515, 0.262),
-            (0.0505, 0.280), (0.047, 0.296), (0.042, 0.307), (0.034, 0.315), (0.022, 0.320),
-            (0.010, 0.3215), (0.0, 0.322)]
+    # 20 x 4.0 street fat tyre: boxy section, outer radius 0.295 over the blocks (measured on the photo)
+    half = [(0.036, 0.206), (0.042, 0.2136), (0.0475, 0.2255), (0.0505, 0.2399), (0.0515, 0.2535),
+            (0.051, 0.2662), (0.049, 0.2764), (0.0455, 0.2832), (0.039, 0.2874), (0.028, 0.2895),
+            (0.014, 0.2904), (0.0, 0.2908)]
     prof = half + [(-x, r) for x, r in reversed(half[:-1])]
     lib.lathe(prefix + '_tyre', prof, 128, 'tyre', bone, center)
 
     import bmesh
     bm = bmesh.new()
-    count = lib.n(58, 20)
-    rows = [(0.0, 0.3215, 0.022, 0.026, 0.0, 0.0),
-            (0.0255, 0.318, 0.019, 0.024, 0.5, 14.0),
-            (-0.0255, 0.318, 0.019, 0.024, 0.5, -14.0),
-            (0.0435, 0.3045, 0.013, 0.026, 0.0, 50.0),
-            (-0.0435, 0.3045, 0.013, 0.026, 0.0, -50.0)]
+    count = lib.n(72, 24)
+    # dense rectangular blocks: two staggered centre rows, intermediate rows, shoulder blocks and sidewall lugs
+    rows = [(0.011, 0.2906, 0.019, 0.016, 0.0, 0.0), (-0.011, 0.2906, 0.019, 0.016, 0.5, 0.0),
+            (0.030, 0.2887, 0.015, 0.021, 0.5, 8.0), (-0.030, 0.2887, 0.015, 0.021, 0.0, -8.0),
+            (0.0445, 0.2827, 0.011, 0.019, 0.0, 48.0), (-0.0445, 0.2827, 0.011, 0.019, 0.5, -48.0),
+            (0.0505, 0.2721, 0.008, 0.013, 0.5, 78.0), (-0.0505, 0.2721, 0.008, 0.013, 0.0, -78.0)]
     if lib.DETAIL < 0.45:
-        rows = rows[:3]
+        rows = rows[:4]
     if lib.DETAIL < 0.2:
         rows = []
     for x, r, wx, wt, shift, tilt in rows:
-        h = 0.0065
+        h = 0.0058
         for k in range(count):
             th = 2 * math.pi * (k + shift) / count
+            jog = 0.004 * (1 if k % 2 else -1) if abs(x) < 0.02 else 0.0
             m = (Matrix.Translation(V(center)) @ Matrix.Rotation(th, 4, 'X')
-                 @ Matrix.Translation(V((x, 0, r))) @ Matrix.Rotation(math.radians(tilt), 4, 'Y')
+                 @ Matrix.Translation(V((x + jog, 0, r))) @ Matrix.Rotation(math.radians(tilt), 4, 'Y')
                  @ Matrix.Translation(V((0, 0, h / 2 - 0.001)))
                  @ Matrix.Diagonal((wx, wt, h, 1.0)))
             bmesh.ops.create_cube(bm, size=1.0, matrix=m)
     if rows:
         knobs = lib.bm_to_obj(prefix + '_tread', bm, 'tyre', bone)
-        lib.add_bevel(knobs, 0.0022, 2, 30.0)
+        lib.add_bevel(knobs, 0.0016, 2, 30.0)
 
     rim = [(0.042, 0.2145), (0.0455, 0.2165), (0.0455, 0.205), (0.041, 0.197), (0.041, 0.186),
            (-0.041, 0.186), (-0.041, 0.197), (-0.0455, 0.205), (-0.0455, 0.2165), (-0.042, 0.2145),
@@ -140,14 +136,14 @@ def wheel(prefix, c, bone, rear):
         for k in range(steps + 1):
             t = k / steps
             r = r_hub + (r_rim - r_hub) * t
-            off = sign * (0.006 + 0.03 * t)
-            w = 0.016 - 0.004 * t
+            off = sign * (0.0085 + 0.009 * t)
+            w = 0.0165 - 0.004 * t
             outline.append((off - w / 2, r))
         for k in range(steps, -1, -1):
             t = k / steps
             r = r_hub + (r_rim - r_hub) * t
-            off = sign * (0.006 + 0.03 * t)
-            w = 0.016 - 0.004 * t
+            off = sign * (0.0085 + 0.009 * t)
+            w = 0.0165 - 0.004 * t
             outline.append((off + w / 2, r))
         th = 0.012
         top, bot = [], []
@@ -501,17 +497,32 @@ def shock():
     lib.pipe('shock_spring', pts, 0.0048, 'paint_yellow', 'chassis', verts=10)
 
 
-def fender(name, c, r, a0, a1, bone, hw=0.07):
+def fender(name, c, r, a0, a1, bone, hw=0.07, sag=0.022, beak=False, r_end=None):
+    """Glossy fender: a channel swept round the wheel from angle a0 to a1 (0 = forward, 90 = up).
+    With beak the a1 end narrows to a point, like the tail of the front fender in the photo; r_end flares the
+    radius out towards the a1 end."""
     pts = []
     steps = lib.n(64, 12)
+    r_end = r if r_end is None else r_end
     for k in range(steps):
-        a = math.radians(a0 + (a1 - a0) * k / (steps - 1))
-        pts.append(P(0, (c[0] + r * math.cos(a), c[1] + r * math.sin(a))))
-    sag, th = 0.022, 0.0035
+        u = k / (steps - 1)
+        a = math.radians(a0 + (a1 - a0) * u)
+        rr = r + (r_end - r) * u * u
+        pts.append(P(0, (c[0] + rr * math.cos(a), c[1] + rr * math.sin(a))))
+    th = 0.0035
     half = lib.n(8, 2)
-    outer = [(hw * (k / half - 1), sag * (1 - (k / half - 1) ** 2)) for k in range(2 * half + 1)]
-    prof = outer + [(a, b - th) for a, b in reversed(outer)]
-    return lib.sweep(name, pts, lambda u: prof, 'plastic_gloss', bone, weighted=False)
+
+    def prof(u):
+        w = hw
+        sg = sag
+        if beak:
+            sg = sag * (1 + 1.4 * u * u)                    # side skirts get deeper towards the tail
+            if u > 0.82:
+                w = hw * (1 - 0.8 * ((u - 0.82) / 0.18) ** 1.3)
+        outer = [(w * (k / half - 1), sg * (w / hw) * (1 - (k / half - 1) ** 2)) for k in range(2 * half + 1)]
+        return outer + [(a, b - th) for a, b in reversed(outer)]
+
+    return lib.sweep(name, pts, prof, 'plastic_gloss', bone, weighted=False)
 
 
 RACK_X = 0.098
@@ -582,140 +593,239 @@ def cushion():
 
 # ------------------------------------------------------------- front end
 
+def crown(name, zc, thick, depth=0.056):
+    """Yellow fork crown: a capsule plate holding both legs and the steerer, perpendicular to the steering axis,
+    with a black pinch bolt behind each leg."""
+    c = on_axis(zc)
+    up3, x3, f3 = V((0, UP[0], UP[1])), V((1, 0, 0)), V((0, FWD[0], FWD[1]))
+    half_w, r = LEG_X + 0.026, depth / 2
+    outline = []
+    for k in range(13):                                    # right end, then left end (half circles)
+        a = math.radians(-90 + 180 * k / 12)
+        outline.append(((half_w - r) + r * math.cos(a), r * math.sin(a)))
+    for k in range(13):
+        a = math.radians(90 + 180 * k / 12)
+        outline.append((-(half_w - r) + r * math.cos(a), r * math.sin(a)))
+    ob = lib.plate(name, outline, -thick / 2, thick / 2, 'paint_yellow', 'forks_u', bevel=0.006)
+    ob.matrix_world = lib.basis(up3, x3, f3, P(0, c))
+    for s in (1, -1):
+        p = P(s * LEG_X, c) - f3 * (r + 0.004)
+        lib.cylinder(name + '_bolt%+d' % s, 0.0055, 0, 'alloy_black', 'forks_u', start=p - x3 * 0.018,
+                     end=p + x3 * 0.018, verts=6)
+        lib.cylinder(name + '_bolthead%+d' % s, 0.0072, 0, 'alloy_black', 'forks_u', start=p + x3 * s * 0.018,
+                     end=p + x3 * s * 0.024, verts=6)
+
+
 def fork():
-    legs_top, axis_at, cc, hl = _front_geometry()
+    """Double-crown fat-bike fork: black stanchions clamped in a yellow upper and lower crown, black lower legs with
+    the coil-spring sticker and red/white label, yellow side plates holding the front fender, headlight under the
+    lower crown."""
     for s in (1, -1):
-        x = s * 0.092
-        lib.cylinder('fork_lower%+d' % s, 0.023, 0, 'alloy_black', 'forks_l', start=P(x, add(FA, UP, -0.02)),
-                     end=P(x, add(FA, UP, 0.24)), verts=32, bevel=0.003)
-        lib.cylinder('fork_stanchion%+d' % s, 0.0165, 0, 'paint_black', 'forks_u', start=P(x, add(FA, UP, 0.16)),
-                     end=P(x, add(legs_top, UP, 0.01)), verts=32)
-        lib.cylinder('fork_seal%+d' % s, 0.0195, 0, 'rubber', 'forks_l', start=P(x, add(FA, UP, 0.232)),
-                     end=P(x, add(FA, UP, 0.246)), verts=32)
-        for t, mat in ((0.10, 'decal_yellow'), (0.116, 'lens_red'), (0.132, 'decal_yellow'), (0.148, 'decal_white')):
-            lib.cylinder('fork_band%+d' % s, 0.0236, 0, mat if mat != 'lens_red' else 'decal_red', 'forks_l',
-                         start=P(x, add(FA, UP, t)), end=P(x, add(FA, UP, t + 0.011)), verts=32)
-        lib.box('fork_dropout%+d' % s, (0.016, 0.04, 0.05), 'alloy_black', 'forks_l',
-                matrix=tube_matrix(P(0, FA), P(0, add(FA, UP, 1)), P(x, add(FA, UP, 0.0))), bevel=0.005)
-    # yellow ladder brackets from the fork legs back to the fender
-    for s in (1, -1):
-        a = P(s * 0.075, add(FA, UP, 0.135))
-        phi = math.radians(165)
-        b = P(s * 0.069, (FA[0] + 0.367 * math.cos(phi), FA[1] + 0.367 * math.sin(phi) + 0.01))
-        t3 = (b - a).normalized()
-        up3 = t3.cross(V((1, 0, 0))).normalized() * -1
-        if up3.z < 0:
-            up3 = -up3
-        length = (b - a).length
-        frame_m = lib.basis(V((1, 0, 0)), t3, up3, (a + b) / 2)
-        for dz in (-0.019, 0.019):
-            lib.box('fender_bracket_bar%+d' % s, (0.005, length, 0.008), 'paint_yellow', 'forks_l',
-                    matrix=frame_m @ Matrix.Translation(V((0, 0, dz))), bevel=0.0015)
-        for k in range(5):
-            yy = -length / 2 + 0.006 + k * (length - 0.012) / 4
-            lib.box('fender_bracket_rung%+d' % s, (0.005, 0.009, 0.046), 'paint_yellow', 'forks_l',
-                    matrix=frame_m @ Matrix.Translation(V((0, yy, 0))), bevel=0.0015)
-    # crown (yellow)
-    lib.box('fork_crown', (0.215, 0.085, 0.036), 'paint_yellow', 'forks_u',
-            matrix=tube_matrix(P(0, FA), P(0, add(FA, UP, 1)), P(0, cc)), bevel=0.008)
-    lib.cylinder('steerer', 0.0145, 0, 'steel_dark', 'forks_u', start=P(0, axis_at), end=P(0, add(HT_TOP, UP, 0.03)),
-                 verts=24)
-    lib.cylinder('top_cap', 0.034, 0, 'paint_yellow', 'forks_u', start=P(0, add(HT_TOP, UP, 0.004)),
-                 end=P(0, add(HT_TOP, UP, 0.03)), verts=40, bevel=0.003)
-    # headlight on the crown
-    lib.box('headlight_bracket', (0.02, 0.05, 0.01), 'alloy_black', 'forks_u', loc=(0, hl[0] - 0.03, hl[1] - 0.012))
-    lib.cylinder('headlight_body', 0.024, 0, 'plastic_gloss', 'forks_u', start=P(0, add(hl, (1, 0), -0.03)),
-                 end=P(0, add(hl, (1, 0), 0.015)), verts=32, bevel=0.004)
-    lib.cylinder('headlight_lens', 0.0195, 0, 'lens_white', 'forks_u', start=P(0, add(hl, (1, 0), 0.015)),
-                 end=P(0, add(hl, (1, 0), 0.0175)), verts=32)
-    fender('fender_front', FA, 0.367, 58, 192, 'forks_l', hw=0.063)
+        x = s * LEG_X
+        lib.cylinder('fork_stanchion%+d' % s, 0.0175, 0, 'paint_black', 'forks_u', start=P(x, on_axis(0.55)),
+                     end=P(x, on_axis(CROWN_UP_Z + 0.022)), verts=32, bevel=0.002)
+        lib.cylinder('fork_boot%+d' % s, 0.0205, 0, 'rubber', 'forks_u', start=P(x, on_axis(CROWN_UP_Z - 0.06)),
+                     end=P(x, on_axis(CROWN_UP_Z - 0.018)), verts=32, bevel=0.002)
+        lib.cylinder('fork_lower%+d' % s, 0.0225, 0, 'alloy_black', 'forks_l', start=P(x, on_axis(FA[1] - 0.012)),
+                     end=P(x, on_axis(0.585)), verts=32, bevel=0.003)
+        lib.cylinder('fork_seal%+d' % s, 0.0205, 0, 'rubber', 'forks_l', start=P(x, on_axis(0.585)),
+                     end=P(x, on_axis(0.598)), verts=32)
+        lib.plate('fork_dropout%+d' % s, [(FA[0] - 0.024, FA[1] - 0.012), (FA[0] + 0.02, FA[1] - 0.024),
+                                          (FA[0] + 0.03, FA[1] + 0.012), (FA[0] + 0.005, FA[1] + 0.045),
+                                          (FA[0] - 0.024, FA[1] + 0.035)],
+                  s * (LEG_X - 0.008), s * (LEG_X + 0.008), 'alloy_black', 'forks_l', bevel=0.004)
+        # stickers on the outside of each lower leg: yellow coil spring over black, red/white/yellow label below
+        dirv = V((0, UP[0], UP[1]))
+        fwd = V((0, FWD[0], FWD[1]))
+        base = P(s * (LEG_X + 0.0228), on_axis(0.375))
+        import bmesh
+        bm = bmesh.new()
+        for k in range(9):                                 # spring coils as slanted bars
+            c = base + dirv * (0.015 + 0.0105 * k) + fwd * 0.002
+            q = [c - fwd * 0.008 - dirv * 0.0025, c + fwd * 0.008 + dirv * 0.0012, c + fwd * 0.008 + dirv * 0.0052,
+                 c - fwd * 0.008 + dirv * 0.0015]
+            vs = [bm.verts.new(v) for v in q]
+            bm.faces.new(vs if s > 0 else list(reversed(vs)))
+        lib.bm_to_obj('decal_fork_spring%+d' % s, bm, 'decal_yellow', 'forks_l', smooth=False)
+        lib.cylinder('decal_fork_badge%+d' % s, 0.0065, 0.0006, 'decal_yellow', 'forks_l',
+                     matrix=lib.frame_from_z(V((s, 0, 0)), base + dirv * 0.112))
+        for k, (mat, t0, t1) in enumerate((('decal_yellow', -0.004, 0.006), ('decal_red', 0.006, 0.022),
+                                          ('decal_white', 0.022, 0.032))):
+            c = base + dirv * ((t0 + t1) / 2) - fwd * 0.009
+            lib.box('decal_fork_label%d%+d' % (k, s), (0.0008, 0.012, t1 - t0), mat, 'forks_l',
+                    matrix=lib.basis(V((1, 0, 0)), fwd, dirv, c))
+        # yellow fender plate: from the lower leg back to the side of the fender, three rectangular windows
+        out = [(0.585, 0.424), (0.585, 0.448), (0.390, 0.470), (0.375, 0.455), (0.375, 0.410), (0.390, 0.398)]
+        zt = lambda yy: 0.470 - (yy - 0.39) * 0.113
+        zb = lambda yy: 0.398 + (yy - 0.39) * 0.133
+        holes = []
+        for k in range(3):
+            ya = 0.405 + k * 0.054
+            yb = ya + 0.038
+            holes.append([(ya, zb(ya) + 0.008), (yb, zb(yb) + 0.008), (yb + 0.006, zt(yb) - 0.008),
+                          (ya + 0.006, zt(ya) - 0.008)])
+        lib.plate('fender_plate%+d' % s, out, s * 0.071, s * 0.0755, 'paint_yellow', 'forks_l', holes=holes,
+                  bevel=0.0012)
+        lib.cylinder('fender_plate_bolt%+d' % s, 0.005, 0, 'steel_dark', 'forks_l', start=P(s * 0.0755, (0.578, 0.436)),
+                     end=P(s * 0.0795, (0.578, 0.436)), verts=12)
+        for yy, zz in ((0.385, 0.417), (0.385, 0.455)):
+            lib.cylinder('fender_rivet', 0.0035, 0, 'steel_dark', 'forks_l', start=P(s * 0.0755, (yy, zz)),
+                         end=P(s * 0.078, (yy, zz)), verts=10)
+    crown('fork_crown_upper', CROWN_UP_Z, 0.030)
+    crown('fork_crown_lower', CROWN_LO_Z, 0.034)
+    lib.cylinder('steerer', 0.0145, 0, 'steel_dark', 'forks_u', start=P(0, on_axis(CROWN_LO_Z - 0.02)),
+                 end=P(0, on_axis(CROWN_UP_Z + 0.03)), verts=24)
+    lib.cylinder('top_cap', 0.022, 0, 'alloy_black', 'forks_u', start=P(0, on_axis(CROWN_UP_Z + 0.015)),
+                 end=P(0, on_axis(CROWN_UP_Z + 0.03)), verts=32, bevel=0.002)
+    # headlight: round black housing on a bracket under the lower crown, lens facing forward
+    hl = HL
+    f2 = (1.0, 0.0)
+    lib.box('headlight_bracket', (0.016, 0.012, 0.06), 'alloy_black', 'forks_u',
+            matrix=tube_matrix(P(0, add(hl, (0, 0.0))), P(0, on_axis(CROWN_LO_Z)), P(0, along(hl, on_axis(CROWN_LO_Z), 0.5))),
+            bevel=0.002)
+    lib.cylinder('headlight_body', 0.029, 0, 'plastic_gloss', 'forks_u', start=P(0, add(hl, f2, -0.03)),
+                 end=P(0, add(hl, f2, 0.022)), verts=40, bevel=0.005, radius2=0.032)
+    lib.cylinder('headlight_bezel', 0.031, 0, 'alloy_black', 'forks_u', start=P(0, add(hl, f2, 0.020)),
+                 end=P(0, add(hl, f2, 0.027)), verts=40, bevel=0.0015)
+    lib.cylinder('headlight_lens', 0.0255, 0, 'lens_white', 'forks_u', start=P(0, add(hl, f2, 0.026)),
+                 end=P(0, add(hl, f2, 0.029)), verts=40)
+    # front fender: deep glossy channel over the top and down the back of the tyre, pointed tail, mounted under
+    # the lower crown
+    fender('fender_front', FA, 0.326, 84, 172, 'forks_l', hw=0.062, sag=0.034, beak=True, r_end=0.372)
+    top = (FA[0] + 0.006, FA[1] + 0.327)
+    lib.box('fender_front_mount', (0.05, 0.05, 0.026), 'plastic_black', 'forks_l', loc=P(0, add(top, (0.0, 0.01))),
+            bevel=0.005)
+    a3, b3 = P(0, add(top, (-0.01, 0.02))), P(0, add(on_axis(CROWN_LO_Z - 0.018), (0.012, 0.0)))
+    lib.box('fender_front_strut', (0.024, 0.006, (b3 - a3).length), 'alloy_black', 'forks_u',
+            matrix=tube_matrix(a3, b3, (a3 + b3) / 2), bevel=0.0015)
     return hl
 
 
+STEM_BASE = (0.414, 0.950)             # top of the upper crown, behind the steering axis (folding stem)
+STEM_FOLD = (0.398, 1.000)             # folding clamp
+STEM_TOP = (0.358, 1.302)              # handlebar clamp centre (stem leans back 6 degrees)
+BAR = (0.330, 1.342, 0.330)            # handlebar: centre y, grip height z, half width
+BAG = (0.418, 0.930, 1.287, 0.28, 0.135)   # back face y, bottom z, top z, width, depth
+
+
 def cockpit():
-    sdir = (STEM_TOP[0] - HT_TOP[0], STEM_TOP[1] - HT_TOP[1])
+    """Folding stem straight up from the upper crown, flat bar with yellow middle sections, black grips with yellow
+    rings and end caps, levers, thumb control, bell, rectangular display on the clamp, phone holder on the left,
+    and the soft bag hanging in front of the stem."""
+    sdir = (STEM_TOP[0] - STEM_FOLD[0], STEM_TOP[1] - STEM_FOLD[1])
     sl = math.hypot(*sdir)
     sdir = (sdir[0] / sl, sdir[1] / sl)
-    lib.cylinder('stem', 0.021, 0, 'paint_black', 'forks_u', start=P(0, add(HT_TOP, sdir, 0.02)), end=P(0, STEM_TOP), verts=32)
-    fc = add(HT_TOP, sdir, 0.075)
-    lib.cylinder('stem_fold_clamp', 0.0268, 0, 'paint_yellow', 'forks_u', start=P(0, add(fc, sdir, -0.024)),
-                 end=P(0, add(fc, sdir, 0.024)), verts=32, bevel=0.003)
-    lib.box('stem_fold_lever', (0.012, 0.016, 0.085), 'plastic_gloss', 'forks_u',
-            matrix=tube_matrix(P(0, HT_TOP), P(0, STEM_TOP), P(-0.03, add(fc, sdir, 0.02))), bevel=0.004)
-    lib.text('decal_logo_stem', 'One Bike', 0.022, 'decal_yellow', 'forks_u',
-             lib.side_matrix(add(HT_TOP, sdir, 0.11), sdir, 1, 0.0213))
-    lib.cylinder('bar_clamp', 0.023, 0, 'alloy_black', 'forks_u', start=V((-0.04, STEM_TOP[0] - 0.002, STEM_TOP[1] + 0.017)),
-                 end=V((0.04, STEM_TOP[0] - 0.002, STEM_TOP[1] + 0.017)), verts=32, bevel=0.003)
-    zc = STEM_TOP[1] + 0.017
-    yc = STEM_TOP[0] - 0.002
-    bar = [V((-0.335, yc - 0.083, zc + 0.045)), V((-0.20, yc - 0.078, zc + 0.045)), V((-0.12, yc - 0.045, zc + 0.025)),
-           V((-0.06, yc, zc)), V((0.06, yc, zc)), V((0.12, yc - 0.045, zc + 0.025)), V((0.20, yc - 0.078, zc + 0.045)),
-           V((0.335, yc - 0.083, zc + 0.045))]
+    # folding joint: black block with a lever and a velcro strap, sitting on the upper crown
+    lib.box('stem_fold_block', (0.058, 0.056, 0.074), 'plastic_gloss', 'forks_u',
+            matrix=tube_matrix(P(0, STEM_BASE), P(0, STEM_FOLD), P(0, along(STEM_BASE, STEM_FOLD, 0.6))), bevel=0.007)
+    lib.box('stem_fold_lever', (0.012, 0.018, 0.075), 'plastic_gloss', 'forks_u',
+            matrix=tube_matrix(P(0, STEM_FOLD), P(0, STEM_TOP), P(0.03, add(STEM_FOLD, sdir, 0.005))), bevel=0.004)
+    lib.cylinder('stem_fold_strap', 0.0265, 0, 'webbing', 'forks_u', start=P(0, add(STEM_FOLD, sdir, 0.012)),
+                 end=P(0, add(STEM_FOLD, sdir, 0.04)), verts=24, bevel=0.002)
+    lib.cylinder('stem', 0.0198, 0, 'paint_black', 'forks_u', start=P(0, add(STEM_FOLD, sdir, 0.0)),
+                 end=P(0, STEM_TOP), verts=32, bevel=0.002)
+    # height clamp collar and the white height scale on the inner tube
+    lib.cylinder('stem_collar', 0.0215, 0, 'plastic_gloss', 'forks_u', start=P(0, add(STEM_TOP, sdir, -0.105)),
+                 end=P(0, add(STEM_TOP, sdir, -0.083)), verts=32, bevel=0.002)
+    for k in range(6):
+        c = add(STEM_TOP, sdir, -0.075 + 0.009 * k)
+        lib.box('stem_scale%d' % k, (0.0008, 0.004 if k % 2 else 0.007, 0.0012), 'decal_white', 'forks_u',
+                loc=P(0.0183, c))
+    zc = BAR[1]
+    yc = BAR[0]
+    # handlebar clamp
+    lib.cylinder('bar_clamp', 0.022, 0, 'alloy_black', 'forks_u', start=V((-0.032, STEM_TOP[0], STEM_TOP[1] + 0.012)),
+                 end=V((0.032, STEM_TOP[0], STEM_TOP[1] + 0.012)), verts=32, bevel=0.003)
+    lib.box('bar_clamp_body', (0.04, 0.04, 0.03), 'alloy_black', 'forks_u', loc=P(0, add(STEM_TOP, (0.0, -0.004))),
+            bevel=0.006)
+    hx = BAR[2]
+    cy0, cz0 = STEM_TOP[0], STEM_TOP[1] + 0.012
+    bar = [V((-hx, yc, zc)), V((-0.20, yc + 0.004, zc)), V((-0.11, cy0 - 0.008, zc - 0.012)),
+           V((-0.05, cy0, cz0)), V((0.05, cy0, cz0)), V((0.11, cy0 - 0.008, zc - 0.012)), V((0.20, yc + 0.004, zc)),
+           V((hx, yc, zc))]
     lib.pipe('handlebar', bar, 0.0112, 'alloy_black', 'forks_u', fillet_r=0.05, verts=20, step=0.01)
     bar_path = lib.resample(lib.fillet(bar, 0.05), 0.005)
     for s in (1, -1):
-        seg = [p for p in bar_path if 0.042 <= s * p.x <= 0.17]
+        seg = [p for p in bar_path if 0.045 <= s * p.x <= 0.188]
         if s < 0:
             seg.reverse()
-        lib.pipe('bar_sleeve%+d' % s, seg, 0.0127, 'paint_yellow', 'forks_u', verts=20)
-        g0, g1 = V((s * 0.205, yc - 0.0785, zc + 0.045)), V((s * 0.335, yc - 0.083, zc + 0.045))
-        lib.cylinder('grip%+d' % s, 0.0168, 0, 'rubber', 'forks_u', start=g0, end=g1, verts=32, bevel=0.003)
-        lib.cylinder('grip_end%+d' % s, 0.0178, 0, 'paint_yellow', 'forks_u', start=g1, end=g1 + V((s * 0.012, 0, 0)),
-                     verts=32, bevel=0.003)
-        lib.cylinder('lever_perch%+d' % s, 0.016, 0, 'alloy_black', 'forks_u', start=V((s * 0.183, yc - 0.075, zc + 0.044)),
-                     end=V((s * 0.201, yc - 0.077, zc + 0.044)), verts=24)
-        lib.box('lever_body%+d' % s, (0.03, 0.04, 0.026), 'alloy_black', 'forks_u',
-                loc=(s * 0.195, yc - 0.062, zc + 0.05), bevel=0.006)
-        lib.pipe('lever%+d' % s, [V((s * 0.20, yc - 0.05, zc + 0.04)), V((s * 0.215, yc - 0.035, zc + 0.034)),
-                                  V((s * 0.315, yc - 0.04, zc + 0.024))], 0.0055, 'alloy_black', 'forks_u',
+        lib.pipe('bar_sleeve%+d' % s, seg, 0.0128, 'paint_yellow', 'forks_u', verts=20)
+        g0, g1 = V((s * 0.205, yc + 0.0035, zc)), V((s * (hx - 0.004), yc, zc))
+        lib.cylinder('grip%+d' % s, 0.0172, 0, 'rubber', 'forks_u', start=g0, end=g1, verts=32, bevel=0.003)
+        lib.cylinder('grip_ring%+d' % s, 0.0186, 0, 'paint_yellow', 'forks_u', start=g0 - V((s * 0.006, 0, 0)),
+                     end=g0 + V((s * 0.002, 0, 0)), verts=32, bevel=0.0015)
+        lib.cylinder('grip_end%+d' % s, 0.0192, 0, 'paint_yellow', 'forks_u', start=g1,
+                     end=g1 + V((s * 0.014, 0, 0)), verts=32, bevel=0.004)
+        lib.cylinder('grip_end_cap%+d' % s, 0.011, 0, 'rubber', 'forks_u', start=g1 + V((s * 0.013, 0, 0)),
+                     end=g1 + V((s * 0.0145, 0, 0)), verts=24)
+        # brake lever: clamp on the bar, blade reaching out under the grip
+        lc = V((s * 0.193, yc + 0.003, zc))
+        lib.cylinder('lever_perch%+d' % s, 0.0165, 0, 'alloy_black', 'forks_u', start=lc - V((s * 0.008, 0, 0)),
+                     end=lc + V((s * 0.008, 0, 0)), verts=24)
+        lib.box('lever_body%+d' % s, (0.026, 0.042, 0.026), 'alloy_black', 'forks_u', loc=lc + V((0, 0.018, 0.006)),
+                bevel=0.006)
+        lib.pipe('lever%+d' % s, [lc + V((0, 0.036, 0.0)), lc + V((s * 0.02, 0.05, -0.008)),
+                                  lc + V((s * 0.115, 0.045, -0.016))], 0.0055, 'alloy_black', 'forks_u',
                  fillet_r=0.015, verts=12)
-    lib.box('throttle', (0.026, 0.03, 0.034), 'plastic_gloss', 'forks_u', loc=(0.168, yc - 0.075, zc + 0.05), bevel=0.006)
-    # handlebar remote (left thumb): +, -, M buttons facing the rider
-    rc = V((-0.158, yc - 0.064, zc + 0.05))
+    # right: thumb throttle / control block with a grey button, bell lever
+    tb = V((0.165, yc + 0.004, zc + 0.006))
+    lib.box('throttle', (0.03, 0.036, 0.04), 'plastic_gloss', 'forks_u', loc=tb, bevel=0.007)
+    lib.box('throttle_button', (0.018, 0.014, 0.016), 'button_rubber', 'forks_u', loc=tb + V((-0.004, -0.02, 0.012)),
+            bevel=0.003)
+    lib.box('bell_lever', (0.008, 0.014, 0.045), 'plastic_gloss', 'forks_u', loc=tb + V((0.01, -0.006, 0.035)),
+            bevel=0.003)
+    # left: handlebar remote (+, -, M) facing the rider
+    rc = V((-0.158, yc - 0.004, zc + 0.012))
     rn = V((0, -0.62, 0.785)).normalized()
     rm = lib.basis(V((1, 0, 0)), rn.cross(V((1, 0, 0))), rn, rc)
-    lib.box('remote_body', (0.042, 0.034, 0.03), 'plastic_gloss', 'forks_u', matrix=rm, bevel=0.007)
-    for k, (dx, dy, label) in enumerate(((-0.011, 0.007, '+'), (-0.011, -0.008, '\u2013'), (0.011, 0.0, 'M'))):
-        bpos = rc + rn * 0.0155 + V((dx, 0, 0)) + rn.cross(V((1, 0, 0))) * dy
-        lib.cylinder('remote_button%d' % k, 0.0055, 0.004, 'button_rubber', 'forks_u',
+    lib.box('remote_body', (0.04, 0.032, 0.028), 'plastic_gloss', 'forks_u', matrix=rm, bevel=0.007)
+    for k, (dx, dy, label) in enumerate(((-0.011, 0.007, '+'), (-0.011, -0.008, '–'), (0.011, 0.0, 'M'))):
+        bpos = rc + rn * 0.0145 + V((dx, 0, 0)) + rn.cross(V((1, 0, 0))) * dy
+        lib.cylinder('remote_button%d' % k, 0.0052, 0.004, 'button_rubber', 'forks_u',
                      matrix=lib.frame_from_z(rn, bpos), verts=20, bevel=0.0012)
-        lib.text('remote_label%d' % k, label, 0.008, 'decal_white', 'forks_u',
-                 lib.basis(V((1, 0, 0)), rn.cross(V((1, 0, 0))), rn, bpos + rn * 0.0028), font_path=lib.FONT_SANS)
+        lib.text('remote_label%d' % k, label, 0.0075, 'decal_white', 'forks_u',
+                 lib.basis(V((1, 0, 0)), rn.cross(V((1, 0, 0))), rn, bpos + rn * 0.0026), font_path=lib.FONT_SANS)
 
-    # round colour TFT display, tilted toward the rider
-    n_ = V((0, -0.5, 0.866))
+    # rectangular colour display on the bar clamp, tilted toward the rider
+    n_ = V((0, -0.40, 0.917)).normalized()
     u_ = V((1, 0, 0))
     v_ = n_.cross(u_)
-    dc = V((0, yc - 0.024, zc + 0.054))
-    lib.cylinder('display_housing', 0.047, 0.026, 'plastic_gloss', 'forks_u', matrix=lib.frame_from_z(n_, dc), verts=64,
-                 bevel=0.006)
-    lib.cylinder('display_bezel', 0.0455, 0.003, 'alloy_black', 'forks_u', matrix=lib.frame_from_z(n_, dc + n_ * 0.0135),
-                 verts=64, bevel=0.0012)
-    lib.disc_uv('display_screen', dc + n_ * 0.0152, u_, v_, 0.0392, 'screen_display', 'forks_u')
-    lib.cylinder('display_cable_boot', 0.009, 0.02, 'rubber', 'forks_u',
-                 matrix=lib.frame_from_z(-v_, dc - v_ * 0.05 - n_ * 0.004), verts=20, bevel=0.002)
-    lib.box('display_mount', (0.022, 0.035, 0.03), 'plastic_black', 'forks_u', loc=(0, yc - 0.008, zc + 0.022), bevel=0.004)
-    lib.box('display_arm', (0.016, 0.012, 0.03), 'plastic_black', 'forks_u',
-            matrix=lib.basis(u_, n_, -v_, dc - n_ * 0.018 - v_ * 0.005), bevel=0.003)
+    dc = V((0, STEM_TOP[0] - 0.006, STEM_TOP[1] + 0.068))
+    dm = lib.basis(u_, v_, n_, dc)
+    lib.box('display_housing', (0.108, 0.066, 0.024), 'plastic_gloss', 'forks_u', matrix=dm, bevel=0.009)
+    lib.box('display_bezel', (0.1, 0.058, 0.002), 'alloy_black', 'forks_u',
+            matrix=dm @ Matrix.Translation(V((0, 0, 0.0122))), bevel=0.001)
+    lib.rect_uv('display_screen', dc + n_ * 0.0134, u_, v_, 0.088, 0.048, 'screen_display', 'forks_u')
+    lib.box('display_mount', (0.022, 0.03, 0.05), 'plastic_black', 'forks_u',
+            matrix=lib.basis(u_, n_.cross(u_), n_, dc - n_ * 0.03 + v_ * 0.004), bevel=0.004)
 
-    # phone holder on the right
-    lib.cylinder('phone_clamp', 0.016, 0, 'plastic_black', 'forks_u', start=V((0.085, yc - 0.012, zc + 0.006)),
-                 end=V((0.11, yc - 0.017, zc + 0.008)), verts=24)
-    lib.box('phone_arm', (0.014, 0.014, 0.035), 'plastic_black', 'forks_u', loc=(0.098, yc - 0.018, zc + 0.03), bevel=0.003)
-    m = Matrix.Rotation(math.radians(-22), 4, 'X')
-    m.translation = V((0.098, yc - 0.03, zc + 0.095))
-    lib.box('phone_cradle', (0.085, 0.012, 0.11), 'plastic_black', 'forks_u', matrix=m, bevel=0.004)
+    # phone holder on the left of the stem: bar clamp, ball arm, cradle with side jaws and a top latch
+    pc = V((-0.150, yc + 0.013, zc - 0.007))
+    lib.cylinder('phone_clamp', 0.0165, 0, 'plastic_black', 'forks_u', start=pc - V((0.013, 0, 0)),
+                 end=pc + V((0.013, 0, 0)), verts=24)
+    lib.box('phone_arm', (0.014, 0.014, 0.04), 'plastic_black', 'forks_u', loc=pc + V((0, -0.004, 0.028)), bevel=0.003)
+    m = Matrix.Rotation(math.radians(-25), 4, 'X')
+    m.translation = pc + V((0, -0.03, 0.066))
+    lib.box('phone_cradle', (0.078, 0.014, 0.10), 'plastic_black', 'forks_u', matrix=m, bevel=0.004)
     for s in (1, -1):
-        mm = m @ Matrix.Translation(V((s * 0.047, 0.008, 0)))
-        lib.box('phone_jaw%+d' % s, (0.008, 0.02, 0.04), 'plastic_black', 'forks_u', matrix=mm, bevel=0.002)
+        mm = m @ Matrix.Translation(V((s * 0.043, 0.008, 0)))
+        lib.box('phone_jaw%+d' % s, (0.009, 0.022, 0.085), 'plastic_black', 'forks_u', matrix=mm, bevel=0.003)
+    lib.box('phone_latch', (0.05, 0.022, 0.01), 'plastic_black', 'forks_u',
+            matrix=m @ Matrix.Translation(V((0, 0.008, 0.052))), bevel=0.003)
+    lib.box('phone_badge', (0.014, 0.0008, 0.014), 'decal_white', 'forks_u',
+            matrix=m @ Matrix.Translation(V((0, -0.0075, 0.012))))
 
-    # front bag strapped to the stem
-    tilt = math.atan2(-sdir[0], sdir[1])
-    bz = HT_TOP[1] + 0.172
-    t = (bz - HT_TOP[1]) / sdir[1]
-    bc = (HT_TOP[0] + sdir[0] * t + 0.106, bz)
-    m = rot_x(tilt, P(0, bc))
-    soft_bag(m, 0.29, 0.16, 0.33, yc, zc)
+    # soft bag hanging in front of the stem
+    y0, zb, zt, w, d = BAG
+    bm = Matrix.Translation(P(0, (y0 + d / 2, (zb + zt) / 2)))
+    soft_bag(bm, w, d, zt - zb, yc, zc)
+    # "One Bike" in yellow script on a black tab down the back of the bag, reading upwards
+    tab_y = y0 - 0.011
+    lib.box('bag_logo_tab', (0.05, 0.004, 0.19), 'fabric', 'forks_u', loc=(0.018, tab_y, zb + 0.13), bevel=0.0015)
+    za = V((0, -1, 0))
+    xa = V((0, 0, 1))
+    lib.text('decal_logo_bag', 'One Bike', 0.034, 'decal_yellow', 'forks_u',
+             lib.basis(xa, za.cross(xa), za, V((0.018, tab_y - 0.0022, zb + 0.13))))
     return yc, zc
 
 
@@ -1001,29 +1111,38 @@ def brakes_and_cables(yc, zc):
             down = (-down[0], -down[1])
         return add(along(a, b, t), down, gap)
 
+    stem_y = lambda z: STEM_FOLD[0] + (z - STEM_FOLD[1]) * (STEM_TOP[0] - STEM_FOLD[0]) / (STEM_TOP[1] - STEM_FOLD[1])
+
     def route(x, tail, lever):
-        return ([lever, (lever[0] * 0.5, yc - 0.02, zc - 0.05)]
-                + [(x,) + add(add(HT_TOP, sdir, 0.14), back_stem, 0.034),
-                   (x,) + add(add(HB, UP, 0.07), back_head, 0.045),
-                   (x,) + under(HT_MID, MT_A, 0.30, 0.05),
-                   (x,) + under(HT_MID, MT_A, 0.92, 0.048),
-                   (x * 1.5, 0.048, 0.50), (x * 1.5, 0.026, 0.42)] + tail)
+        """Lever -> loop down beside the stem -> behind the crowns and head tube -> under the main tube -> down
+        the front of the down post -> tail."""
+        # cables drop between the stem and the bag (hidden behind the stem), pass in front of the head tube
+        # between the crowns, then wrap under the main tube
+        return ([lever, (lever[0] * 0.5, yc + 0.045, zc - 0.035), (x * 0.4, stem_y(1.20) + 0.024, 1.20),
+                 (x * 0.4, stem_y(1.02) + 0.03, 1.02), (x * 1.4,) + add(on_axis(0.85), (0.046, 0.0)),
+                 (x * 3.0,) + add(on_axis(0.745), (0.0, 0.0)),
+                 (x,) + under(HT_MID, MT_A, 0.30, 0.05), (x,) + under(HT_MID, MT_A, 0.92, 0.048),
+                 (x * 1.5, 0.048, 0.50), (x * 1.5, 0.026, 0.42)] + tail)
 
     cables = {
         'cable_rear_brake': (route(-0.012, [(-0.04, -0.02, 0.37), (-0.066, -0.25, 0.345), (-0.078, -0.48, 0.36),
-                                            (-0.086, -0.565, 0.375)], (0.19, yc - 0.07, zc + 0.04)), 0.0026),
+                                            (-0.086, -0.565, 0.375)], (-0.19, yc + 0.035, zc + 0.02)), 0.0026),
         'cable_motor': (route(0.0, [(0.045, -0.02, 0.37), (0.075, -0.25, 0.288), (0.09, -0.50, 0.295),
-                                    (0.10, RA[0] + 0.035, RA[1] - 0.012)], (0.168, yc - 0.075, zc + 0.04)), 0.0036),
+                                    (0.10, RA[0] + 0.035, RA[1] - 0.012)], (0.165, yc + 0.02, zc + 0.02)), 0.0036),
         'cable_shift': (route(0.012, [(0.05, -0.02, 0.375), (0.078, -0.25, 0.292), (0.095, -0.50, 0.30),
-                                      (0.104, RA[0] + 0.02, RA[1] - 0.05)], (0.15, yc - 0.075, zc + 0.04)), 0.0026),
-        'cable_front_brake': ([(-0.19, yc - 0.07, zc + 0.04), (-0.10, yc - 0.03, zc - 0.05),
-                               (-0.035,) + add(add(HT_TOP, sdir, 0.14), back_stem, 0.03),
-                               (-0.06,) + add(add(HB, UP, 0.0), back_head, 0.03),
-                               (-0.105,) + add(FA, UP, 0.30), (-0.106,) + add(FA, UP, 0.16),
-                               (-0.09, 0.565, 0.43)], 0.0026),
+                                      (0.104, RA[0] + 0.02, RA[1] - 0.05)], (0.19, yc + 0.035, zc + 0.02)), 0.0026),
     }
     for name, (pts, r) in cables.items():
-        lib.pipe(name, [V(p) for p in pts], r, 'plastic_gloss', 'chassis', fillet_r=0.05, verts=10, step=0.02)
+        # upper run steers with the bar, lower run is fixed to the frame; they meet in front of the head tube
+        lib.pipe(name + '_upper', [V(p) for p in pts[:6]], r, 'plastic_gloss', 'forks_u', fillet_r=0.05, verts=10,
+                 step=0.02)
+        lib.pipe(name, [V(p) for p in pts[4:]], r, 'plastic_gloss', 'chassis', fillet_r=0.05, verts=10, step=0.02)
+    # front brake hose: steers with the bar and fork
+    fb = [(-0.193, yc + 0.035, zc + 0.02), (-0.13, yc + 0.06, zc - 0.07), (-0.115,) + add(on_axis(0.97), (0.0, 0.0)),
+          (-0.112,) + on_axis(0.75), (-0.11,) + on_axis(0.55), (-0.105,) + add(on_axis(0.44), (0.012, 0.0)),
+          (-0.09,) + (FA[0] + 0.088 * math.cos(math.radians(118)), FA[1] + 0.088 * math.sin(math.radians(118)) + 0.03)]
+    lib.pipe('cable_front_brake', [V(p) for p in fb], 0.0026, 'plastic_gloss', 'forks_u', fillet_r=0.05, verts=10,
+             step=0.02)
     # kickstand on the left, down on the ground as in the photo
     lib.box('kickstand_mount', (0.016, 0.05, 0.03), 'alloy_black', 'chassis', loc=(-0.042, -0.13, 0.218), bevel=0.003)
     # folded up along the left chainstay (not visible from the right in the photo)
@@ -1044,7 +1163,7 @@ def build(reset=True, collection='OneBike'):
     battery()
     swingarm()
     shock()
-    fender('fender_rear', RA, 0.356, 47, 127, 'swingarm', hw=0.068)
+    fender('fender_rear', RA, 0.342, 47, 127, 'swingarm', hw=0.068, sag=0.03)
     rack()
     hl = fork()
     yc, zc = cockpit()

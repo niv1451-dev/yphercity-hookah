@@ -55,7 +55,7 @@ W, H = 2576, 1449
 xp = float(sys.argv[2])
 L = cam['wheelbase']
 UPAX = np.array([0.0, -math.sin(math.radians(20)), math.cos(math.radians(20))])
-HB = np.array([0.0, 0.415, 0.79])
+HB = np.array([0.0, 0.648, 0.33])     # steering pivot: an axis through the front axle (see calib.py)
 
 
 def rot_axis(axis, ang):

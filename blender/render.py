@@ -56,6 +56,7 @@ def studio():
     bm.to_mesh(me)
     bm.free()
     floor = bpy.data.objects.new('floor', me)
+    floor.location.z = build.GROUND_Z
     floor.is_shadow_catcher = True
     scene.collection.objects.link(floor)
 

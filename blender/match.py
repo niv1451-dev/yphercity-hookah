@@ -28,8 +28,10 @@ STEER_BONES = ('forks_u', 'forks_l', 'wheel_lf')
 
 
 def steer(angle_deg):
+    """Turn the front end about the steering direction through the front axle, so the wheel centre stays where
+    the camera solve put it (the photo solve turns the wheel about its own centre)."""
     axis = Vector((0.0, build.UP[0], build.UP[1])).normalized()
-    pivot = Vector((0.0, build.HB[0], build.HB[1]))
+    pivot = Vector((0.0, build.FA[0], build.FA[1]))
     m = Matrix.Translation(pivot) @ Matrix.Rotation(math.radians(angle_deg), 4, axis) @ Matrix.Translation(-pivot)
     for ob in bpy.data.objects:
         if ob.get('bone') in STEER_BONES:

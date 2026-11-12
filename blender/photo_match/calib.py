@@ -63,7 +63,7 @@ for name, (x0, y0, x1, y1) in boxes.items():
     print(name, 'points', len(p), 'inliers', int(inl.sum()))
 
 # ----------------------------------------------------------- camera model
-UPAX = np.array([0.0, -math.sin(math.radians(20)), math.cos(math.radians(20))])
+UPAX = np.array([0.0, -math.sin(math.radians(20)), math.cos(math.radians(20))])   # solve used for reference/camera.json
 R_STRIPE = 0.21
 X_STRIPE = 0.0457
 ZC = 0.33

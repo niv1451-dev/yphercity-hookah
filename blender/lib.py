@@ -115,7 +115,11 @@ def make_materials():
     import os
     import textures
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'display.png')
-    textures.display_image().save(path)
+    from PIL import Image
+    sq = textures.display_image()                  # round gauge, centred on a wide black colour screen
+    wide = Image.new('RGBA', (int(sq.height * 1.83), sq.height), (0, 0, 0, 255))
+    wide.paste(sq, ((wide.width - sq.width) // 2, 0))
+    wide.save(path)
     image_material('screen_display', path, 1.8)
 
 
@@ -335,6 +339,23 @@ def disc_uv(name, center, u_axis, v_axis, radius, mat, bone, segments=64):
         f = bm.faces.new((mid, v0, v1))
         for loop, (x, y) in zip(f.loops, ((0, 0), (x0, y0), (x1, y1))):
             loop[uv].uv = (0.5 + x / 2, 0.5 + y / 2)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    return link(ob, bone, mat)
+
+
+def rect_uv(name, center, u_axis, v_axis, w, h, mat, bone):
+    """Flat rectangle with a UV map that fills the image (for screens)."""
+    c, u, v = V(center), V(u_axis), V(v_axis)
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new('UVMap')
+    corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    vs = [bm.verts.new(c + u * (a * w / 2) + v * (b * h / 2)) for a, b in corners]
+    f = bm.faces.new(vs)
+    for loop, (a, b) in zip(f.loops, corners):
+        loop[uv].uv = ((a + 1) / 2, (b + 1) / 2)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
