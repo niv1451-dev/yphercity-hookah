@@ -1,0 +1,6 @@
+blender/.venv/
+blender/bscripts/
+blender/display.png
+blender/__pycache__/
+out/
+*.blend1
