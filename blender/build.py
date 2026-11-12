@@ -847,7 +847,7 @@ def soft_bag(m, w, d, h, yc, zc):
     from mathutils import noise
 
     half = V((w / 2, d / 2, h / 2))
-    r = 0.024
+    r = 0.034
     inner = half - V((r, r, r))
 
     def rounded(p):
@@ -861,8 +861,8 @@ def soft_bag(m, w, d, h, yc, zc):
         out = p.copy()
         load = 1.0 + 0.06 * max(0.0, -s_)                                    # contents settle to the bottom
         out.x *= load
-        out.y += (1 if p.y > 0 else -0.4) * 0.019 * (1 - u * u) * (1 - s_ * s_) * abs(nd.y) * load
-        out.x += (1 if p.x > 0 else -1) * 0.012 * (1 - t * t) * (1 - s_ * s_) * abs(nd.x)
+        out.y += (1 if p.y > 0 else -0.5) * 0.026 * (1 - u * u) * (1 - s_ * s_) * abs(nd.y) * load
+        out.x += (1 if p.x > 0 else -1) * 0.022 * (1 - t * t) * (1 - s_ * s_) * abs(nd.x)
         out.z -= 0.009 * (1 - u * u) * (1 - t * t) * max(0.0, nd.z)          # lid dips between the zip
         out.z -= 0.007 * (1 - u * u) * (1 - t * t) * max(0.0, -nd.z)         # bottom sags
         lower = 0.55 + 0.45 * max(0.0, -s_)

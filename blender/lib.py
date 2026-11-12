@@ -81,7 +81,7 @@ def material(name, color, rough=0.5, metal=0.0, coat=0.0, emit=0.0, bump=0.0, bu
 
 
 def make_materials():
-    material('paint_black', '#0a0a0a', rough=0.18, coat=1.0)
+    material('paint_black', '#050505', rough=0.10, coat=1.0)
     material('paint_yellow', '#f2c200', rough=0.22, coat=1.0)
     material('decal_yellow', '#f5c800', rough=0.35, coat=0.6)
     material('decal_black', '#0c0c0c', rough=0.35, coat=0.6)
