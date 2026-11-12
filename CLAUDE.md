@@ -39,6 +39,20 @@ OUTDOOR=1 .venv/bin/python render.py <out_dir> 1500 80 photo
 Write outputs to the session scratchpad, not the repo. A full export plus renders takes 10+ minutes:
 run it in the background and send the images when done.
 
+### On the user's Windows PC (copy at `D:\CarWork\onebike-blender`, no git there)
+
+No bpy module or `.venv`: scripts run inside the installed Blender (`D:\Blender Foundation\Blender 5.2\blender.exe`,
+5.2.4) through `win.py`, which adds `blender\.pylib` (Pillow) to the path and passes the arguments on.
+Linux fonts are swapped for Windows look-alikes in `lib.font()` / `textures._font()` (FreeSerif → Times,
+FreeSans → Arial, DejaVu → Verdana). Sollumz there is the Blender extension from repo.sollumz.org, not `bscripts/`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File setup_win.ps1     # once: Pillow into blender\.pylib
+$B = 'D:\Blender Foundation\Blender 5.2\blender.exe'
+$env:OUTDOOR = '1'; & $B -b --factory-startup --python-exit-code 1 --python win.py -- render.py <out_dir> 1000 32 photo
+& $B -b --factory-startup --python-exit-code 1 --python win.py -- compare.py <out_dir>\onebike_photo.jpg <out_dir>\compare.jpg
+```
+
 ## Conventions and gotchas
 
 - Axes follow GTA vehicles: +Y forward, +Z up, +X right; metres. Ground at z=0 in `build.py`;

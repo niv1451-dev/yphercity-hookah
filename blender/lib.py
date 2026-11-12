@@ -5,6 +5,7 @@ Every object gets an "bone" custom property naming the GTA bone it will be
 parented to at export time.
 """
 import math
+import os
 
 import bmesh
 import bpy
@@ -13,6 +14,8 @@ from mathutils import Matrix, Vector
 V = Vector
 FONT_SCRIPT = '/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf'
 FONT_SANS = '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
+# Windows has no GNU FreeFont: FreeSerif is a Times clone and FreeSans a Helvetica/Arial clone.
+WIN_FONTS = {'FreeSerifBoldItalic.ttf': 'timesbi.ttf', 'FreeSansBold.ttf': 'arialbd.ttf'}
 
 COLLECTION = None
 MATS = {}
@@ -477,7 +480,10 @@ _fonts = {}
 
 def font(path):
     if path not in _fonts:
-        _fonts[path] = bpy.data.fonts.load(path)
+        real, base = path, os.path.basename(path)
+        if not os.path.exists(real) and base in WIN_FONTS:
+            real = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts', WIN_FONTS[base])
+        _fonts[path] = bpy.data.fonts.load(real)
     return _fonts[path]
 
 

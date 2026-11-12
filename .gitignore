@@ -1,4 +1,5 @@
 blender/.venv/
+blender/.pylib/
 blender/bscripts/
 blender/display.png
 blender/__pycache__/

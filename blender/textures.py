@@ -62,11 +62,16 @@ def mesh_net(rgb, size=128):
 
 
 FONT_DIR = '/usr/share/fonts/truetype/dejavu/'
+# Windows has no DejaVu; Verdana is the closest match (same Vera-style wide sans).
+WIN_FONTS = {'DejaVuSans.ttf': 'verdana.ttf', 'DejaVuSans-Bold.ttf': 'verdanab.ttf'}
 
 
 def _font(name, px):
     from PIL import ImageFont
-    return ImageFont.truetype(FONT_DIR + name, px)
+    path = FONT_DIR + name
+    if not os.path.exists(path) and name in WIN_FONTS:
+        path = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts', WIN_FONTS[name])
+    return ImageFont.truetype(path, px)
 
 
 def display_image(size=512, speed=25, pas=3, battery=4, odo='1248.6', trip='12.4', clock='18:42'):
