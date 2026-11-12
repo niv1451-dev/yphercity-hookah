@@ -1,8 +1,9 @@
 """Builds the One Bike fat-tire e-bike from the reference photo.
 
-Layout (side view, metres): rear axle RA, front axle FA, bottom bracket BB,
-swingarm pivot PV, swingarm upper node SN (shock rear eye), frame shock mount
-FM, head tube bottom HB with a 70 degree head angle.
+Layout (side view, metres, measured on the photo through the solved camera in
+reference/camera.json): rear axle RA, front axle FA, crank axle BB, swingarm
+pivot PV, shock lower eye SN (swingarm), shock upper eye FM (under the arch),
+folding hinge HG, steering axis 17 degrees from vertical through the front axle.
 """
 import math
 
@@ -11,22 +12,31 @@ from mathutils import Matrix, Vector
 import lib
 from lib import V
 
-RA = (-0.62, 0.33)
-FA = (0.62, 0.33)
-BB = (0.02, 0.30)
-PV = (-0.03, 0.335)
-SN = (-0.065, 0.445)
-FM = (0.041, 0.600)
-UP = (-math.sin(math.radians(20)), math.cos(math.radians(20)))   # steering axis, upward
+RA = (-0.648, 0.33)
+FA = (0.648, 0.33)
+BB = (-0.083, 0.335)
+PV = (-0.236, 0.305)
+SN = (-0.144, 0.525)
+FM = (-0.040, 0.604)
+HEAD = math.radians(17.0)
+UP = (-math.sin(HEAD), math.cos(HEAD))                             # steering axis, upward
 FWD = (UP[1], -UP[0])                                              # perpendicular, forward
-HB = (0.415, 0.79)
-HT_TOP = (HB[0] + 0.16 * UP[0], HB[1] + 0.16 * UP[1])
-HT_MID = (HB[0] + 0.075 * UP[0], HB[1] + 0.075 * UP[1])
-HG = (0.225, 0.71)
-N = (0.085, 0.54)
+
+
+def on_axis(z):
+    """Point of the steering axis at height z."""
+    return (FA[0] - (z - FA[1]) * math.tan(HEAD), z)
+
+
+HB = on_axis(0.79)                     # head tube bottom
+HT_TOP = on_axis(0.91)                 # head tube top
+HT_MID = on_axis(0.861)                # where the main tube meets the head tube
+HG = (0.072, 0.598)                    # folding hinge
+MT_A = (0.094, 0.626)                  # main tube start at the hinge
+SEAT_A, SEAT_B = (-0.140, 0.565), (-0.190, 0.752)   # seat tube bottom end and clamp
 STEM_TOP = (0.30, 1.265)
 TYRE_R = 0.33
-RACK_Z = 0.715          # top rail of the rear rack
+RACK_Z = 0.705          # top rail of the rear rack
 
 
 def _front_geometry():
@@ -186,70 +196,120 @@ def wheel(prefix, c, bone, rear):
 
 # ------------------------------------------------------------------- frame
 
-def frame():
-    prof = lambda u: lib.rrect_profile(0.060, 0.092 - 0.016 * u, 0.022)
-    path = lib.fillet([P(0, HT_MID), P(0, HG), P(0, N), P(0, (0.03, 0.33))], 0.07, 10)
-    path = lib.resample(path, 0.01)
-    lib.sweep('frame_main', path, prof, 'paint_black', 'chassis')
+ARCH_OUTER = [(-0.178, 0.700), (-0.160, 0.710), (-0.107, 0.711), (-0.049, 0.699), (0.008, 0.668), (0.044, 0.637),
+              (0.066, 0.603), (0.074, 0.575)]
+ARCH_INNER = [(0.030, 0.552), (0.022, 0.572), (-0.002, 0.602), (-0.049, 0.628), (-0.110, 0.641), (-0.150, 0.640),
+              (-0.172, 0.652), (-0.183, 0.676)]
 
-    lib.cylinder('frame_headtube', 0.031, 0, 'paint_black', 'chassis',
-                 start=P(0, add(HB, UP, -0.012)), end=P(0, add(HT_TOP, UP, 0.004)), verts=40, bevel=0.003)
-    for t, name in ((-0.018, 'lower'), (0.163, 'upper')):
+
+def frame():
+    # main tube: rectangular section, folding hinge -> head tube, 31 degrees up
+    mt = lib.resample([P(0, MT_A), P(0, HT_MID)], 0.01)
+    lib.sweep('frame_main', mt, lambda u: lib.rrect_profile(0.056, 0.074 - 0.006 * u, 0.019), 'paint_black', 'chassis')
+    lib.sweep('frame_main_cap', lib.resample([P(0, along(MT_A, HT_MID, 0.88)), P(0, add(HT_MID, (0.012, 0.006)))], 0.01),
+              lambda u: lib.rrect_profile(0.06, 0.07 + 0.012 * u, 0.02), 'paint_black', 'chassis')
+
+    lib.cylinder('frame_headtube', 0.029, 0, 'paint_black', 'chassis',
+                 start=P(0, add(HB, UP, -0.006)), end=P(0, add(HT_TOP, UP, 0.004)), verts=40, bevel=0.003)
+    for t, name in ((-0.012, 'lower'), (0.128, 'upper')):
         c = add(HB, UP, t)
-        lib.cylinder('headset_' + name, 0.0335, 0.012, 'steel_dark', 'chassis',
+        lib.cylinder('headset_' + name, 0.031, 0.012, 'steel_dark', 'chassis',
                      start=P(0, add(c, UP, -0.006)), end=P(0, add(c, UP, 0.006)), verts=40)
 
-    st_a, st_b = (0.08, 0.50), (-0.002, 0.705)
-    lib.cylinder('frame_seattube', 0.0195, 0, 'paint_black', 'chassis', start=P(0, st_a), end=P(0, st_b), verts=32)
-    sdir = (st_b[0] - st_a[0], st_b[1] - st_a[1])
-    sl = math.hypot(*sdir)
-    sdir = (sdir[0] / sl, sdir[1] / sl)
-    lib.cylinder('seat_collar', 0.0228, 0, 'plastic_gloss', 'chassis',
-                 start=P(0, add(st_b, sdir, -0.03)), end=P(0, add(st_b, sdir, 0.002)), verts=32, bevel=0.002)
-    lib.box('seat_qr', (0.008, 0.05, 0.012), 'paint_yellow', 'chassis',
-            matrix=tube_matrix(P(0, st_a), P(0, st_b), P(0.03, add(st_b, sdir, -0.015))), bevel=0.003)
-    sp_top = add(st_b, sdir, 0.14)
-    lib.cylinder('seatpost', 0.0155, 0, 'alloy_black', 'chassis', start=P(0, add(st_b, sdir, -0.05)),
-                 end=P(0, sp_top), verts=32)
+    # folding hinge: two knuckle blocks, vertical barrels on the right, quick-release bolt with a knob
+    lib.box('hinge_block_front', (0.064, 0.034, 0.122), 'paint_black', 'chassis', loc=(0, HG[0] + 0.016, HG[1] + 0.002),
+            bevel=0.007)
+    lib.box('hinge_block_rear', (0.064, 0.03, 0.118), 'paint_black', 'chassis', loc=(0, HG[0] - 0.016, HG[1] - 0.004),
+            bevel=0.007)
+    for k, z in enumerate((-0.045, -0.006, 0.033)):
+        lib.cylinder('hinge_barrel%d' % k, 0.0105, 0, 'paint_black', 'chassis', start=V((0.031, HG[0] - 0.002, HG[1] + z)),
+                     end=V((0.031, HG[0] - 0.002, HG[1] + z + 0.034)), verts=20, bevel=0.0015)
+    lib.cylinder('hinge_pin', 0.0045, 0, 'steel', 'chassis', start=V((0.031, HG[0] - 0.002, HG[1] - 0.052)),
+                 end=V((0.031, HG[0] - 0.002, HG[1] + 0.073)), verts=12)
+    qr_z = HG[1] - 0.012
+    lib.cylinder('hinge_qr_bolt', 0.0042, 0, 'steel', 'chassis', start=V((0.036, HG[0] - 0.012, qr_z)),
+                 end=V((0.036, HG[0] + 0.052, qr_z - 0.003)), verts=12)
+    lib.cylinder('hinge_qr_nut', 0.0075, 0, 'steel', 'chassis', start=V((0.036, HG[0] + 0.004, qr_z)),
+                 end=V((0.036, HG[0] + 0.014, qr_z)), verts=6)
+    lib.cylinder('hinge_qr_knob', 0.0085, 0, 'steel', 'chassis', start=V((0.036, HG[0] + 0.050, qr_z - 0.003)),
+                 end=V((0.036, HG[0] + 0.066, qr_z - 0.004)), verts=20, bevel=0.002)
 
-    lib.cylinder('frame_bbshell', 0.025, 0, 'paint_black', 'chassis', start=P(-0.056, BB), end=P(0.056, BB), verts=32,
+    # down post: from under the hinge down behind the chainring to the crank axle
+    dp = lib.resample(lib.spline([(0.052, 0.585), (0.014, 0.52), (0.002, 0.455), (-0.03, 0.385), (-0.083, 0.345)], 6),
+                      0.01)
+    lib.sweep('frame_downpost', [P(0, p) for p in dp], lambda u: lib.rrect_profile(0.052, 0.074 - 0.012 * u, 0.016),
+              'paint_black', 'chassis')
+    lib.cylinder('frame_bbshell', 0.026, 0, 'paint_black', 'chassis', start=P(-0.048, BB), end=P(0.048, BB), verts=32,
                  bevel=0.002)
 
-    # folding hinge
-    a3, b3 = P(0, HT_MID), P(0, HG)
-    m = tube_matrix(P(0, HG), P(0, N), P(0, HG))
-    lib.box('hinge_block', (0.066, 0.096, 0.07), 'paint_black', 'chassis', matrix=m, bevel=0.008)
-    lib.cylinder('hinge_pin', 0.009, 0, 'steel', 'chassis', start=V((0.0, HG[0] + 0.03, HG[1] + 0.05)),
-                 end=V((0.0, HG[0] + 0.03, HG[1] + 0.065)), verts=16)
-    m = tube_matrix(P(0, N), P(0, HG), P(-0.038, along(HG, N, 0.05)))
-    lib.box('hinge_lever', (0.012, 0.024, 0.13), 'paint_yellow', 'chassis', matrix=m, bevel=0.004)
-
-    # pivot brackets and shock tabs
+    # curved arch from the seat tube over the shock to the hinge, with a slot
+    outline = lib.spline(ARCH_OUTER, 6) + lib.spline(ARCH_INNER, 6)
+    slot = [(-0.098 + 0.017 * math.cos(a), 0.668 + 0.0065 * math.sin(a)) for a in
+            (2 * math.pi * k / 20 for k in range(20))]
+    lib.plate('frame_arch', outline, -0.021, 0.021, 'paint_black', 'chassis', holes=[slot], bevel=0.007)
     for s in (1, -1):
-        m = tube_matrix(P(0, (0.035, 0.37)), P(0, PV), P(s * 0.045, along((0.035, 0.37), PV, 0.5)))
-        lib.box('pivot_plate%+d' % s, (0.008, 0.045, 0.085), 'paint_black', 'chassis', matrix=m, bevel=0.003)
-        lib.box('shock_tab%+d' % s, (0.006, 0.04, 0.04), 'paint_black', 'chassis',
-                loc=(s * 0.02, FM[0] + 0.005, FM[1] - 0.004), bevel=0.002)
+        lib.plate('shock_tab%+d' % s, [(-0.062, 0.632), (-0.022, 0.628), (-0.028, 0.596), (-0.052, 0.592)],
+                  s * 0.013, s * 0.018, 'paint_black', 'chassis', bevel=0.0015)
+    # dashes along the top of the arch (both sides)
+    dash = lib.spline(ARCH_OUTER[1:6], 10)
+    for s in (1, -1):
+        bmname = 'decal_arch_dashes%+d' % s
+        import bmesh
+        bm = bmesh.new()
+        for k in range(len(dash) - 1):
+            if k % 2:
+                continue
+            a, b = V((0, *dash[k])), V((0, *dash[k + 1]))
+            t = (b - a).normalized()
+            nrm = V((0, -t.z, t.y))
+            c = (a + b) / 2 - nrm * 0.0135
+            w = 0.006
+            quad = [c - t * w / 2 - nrm * 0.0045, c + t * w / 2 - nrm * 0.0045, c + t * w / 2 + nrm * 0.0045 + t * 0.003,
+                    c - t * w / 2 + nrm * 0.0045 + t * 0.003]
+            vs = [bm.verts.new((s * 0.0216, q.y, q.z)) for q in quad]
+            bm.faces.new(vs if s > 0 else list(reversed(vs)))
+        lib.bm_to_obj(bmname, bm, 'decal_yellow', 'chassis', smooth=False)
 
-    # curved gusset between the seat tube top and the main tube (the black arc in the photo)
-    arc_path = lib.resample(lib.fillet([P(0, (0.004, 0.69)), P(0, (0.095, 0.708)), P(0, (0.178, 0.655))], 0.09, 10), 0.01)
-    lib.sweep('frame_gusset', arc_path, lambda u: lib.rrect_profile(0.046, 0.03, 0.011), 'paint_black', 'chassis')
-    lib.stripes('decal_gusset_dashes', P(0, (0.01, 0.695)), P(0, (0.10, 0.706)), 0.023, 0.008, 8, 0.006, 25,
-                'decal_yellow', 'chassis', shift=0.009)
+    # seat tube through the end of the arch, black clamp, seatpost
+    sdir = (SEAT_B[0] - SEAT_A[0], SEAT_B[1] - SEAT_A[1])
+    sl = math.hypot(*sdir)
+    sdir = (sdir[0] / sl, sdir[1] / sl)
+    lib.cylinder('frame_seattube', 0.0205, 0, 'paint_black', 'chassis', start=P(0, SEAT_A), end=P(0, SEAT_B), verts=32,
+                 bevel=0.002)
+    lib.cylinder('seat_collar', 0.0235, 0, 'plastic_gloss', 'chassis',
+                 start=P(0, add(SEAT_B, sdir, -0.028)), end=P(0, add(SEAT_B, sdir, 0.003)), verts=32, bevel=0.002)
+    m = tube_matrix(P(0, SEAT_A), P(0, SEAT_B), P(0.026, add(SEAT_B, sdir, -0.013)))
+    lib.box('seat_qr_lever', (0.007, 0.062, 0.013), 'plastic_gloss', 'chassis',
+            matrix=m @ Matrix.Translation(V((0, -0.022, 0))), bevel=0.003)
+    sp_top = add(SEAT_B, sdir, 0.095)
+    lib.cylinder('seatpost', 0.0158, 0, 'alloy_black', 'chassis', start=P(0, add(SEAT_B, sdir, -0.05)),
+                 end=P(0, sp_top), verts=32)
 
-    # decals: stripe block near the head tube, logo with emblem, thin stripes low on the tube
-    lib.stripes('decal_stripes_head', P(0, HT_MID), P(0, HG), 0.030, 0.072, 4, 0.011, 35, 'decal_yellow',
-                'chassis', start=0.04, end=0.26)
-    lib.stripes('decal_stripes_row', P(0, HG), P(0, N), 0.030, 0.026, 10, 0.006, 35, 'decal_yellow',
-                'chassis', start=0.30, end=0.92, shift=-0.022)
-    lib.stripes('decal_stripes_low', P(0, N), P(0, (0.03, 0.33)), 0.030, 0.064, 5, 0.012, 35, 'decal_yellow',
-                'chassis', start=0.30, end=0.88)
-    d = (HT_MID[0] - HG[0], HT_MID[1] - HG[1])
+    # yellow lower housing behind and under the crank, black stripes on its sides
+    hous = lib.spline([(-0.040, 0.360), (-0.036, 0.290), (-0.080, 0.232), (-0.130, 0.206), (-0.178, 0.196),
+                       (-0.226, 0.226), (-0.262, 0.272), (-0.258, 0.316), (-0.215, 0.338), (-0.130, 0.372),
+                       (-0.070, 0.382)], 5)
+    lib.plate('frame_lower_housing', hous[:-1], -0.034, 0.034, 'paint_yellow', 'chassis', bevel=0.007)
+    for s in (1, -1):
+        lib.stripes('decal_housing_stripes%+d' % s, P(0, (-0.205, 0.272)), P(0, (-0.085, 0.272)), 0.0342, 0.085, 6,
+                    0.011, -30, 'decal_black', 'chassis', sides=(s,))
+
+    # decals on the main tube: stripe block, logo with emblem, long run of thin stripes, "X4" on the down post
+    lib.stripes('decal_stripes_head', P(0, MT_A), P(0, HT_MID), 0.0285, 0.06, 5, 0.008, 28, 'decal_yellow',
+                'chassis', start=0.80, end=0.93)
+    lib.stripes('decal_stripes_row', P(0, MT_A), P(0, HT_MID), 0.0285, 0.05, 14, 0.0065, 28, 'decal_yellow',
+                'chassis', start=0.10, end=0.42, shift=-0.004)
+    d = (HT_MID[0] - MT_A[0], HT_MID[1] - MT_A[1])
     dl = math.hypot(*d)
     d = (d[0] / dl, d[1] / dl)
     for s in (1, -1):
         rd = d if s > 0 else (-d[0], -d[1])
-        lib.logo('decal_logo_frame%+d' % s, along(HG, HT_MID, 0.47), rd, s, 0.0304, 0.03, 'decal_yellow', 'chassis')
+        lib.logo('decal_logo_frame%+d' % s, along(MT_A, HT_MID, 0.62), rd, s, 0.0284, 0.034, 'decal_yellow', 'chassis')
+        lib.text('decal_x4%+d' % s, 'X4', 0.042, 'decal_yellow', 'chassis',
+                 lib.side_matrix((0.006, 0.535), (0.25, 0.97) if s > 0 else (-0.25, -0.97), s, 0.0262),
+                 font_path=lib.FONT_SANS)
+        lib.stripes('decal_downpost_stripes%+d' % s, P(0, (0.022, 0.50)), P(0, (-0.01, 0.40)), 0.0262, 0.012, 9, 0.004,
+                    0, 'decal_yellow', 'chassis', sides=(s,), shift=0.018)
     return sp_top
 
 
@@ -279,89 +339,166 @@ def saddle(sp_top):
     lib.box('saddle_clamp', (0.06, 0.045, 0.025), 'alloy_black', 'chassis', loc=(0, cy - 0.005, cz - 0.058), bevel=0.004)
 
 
+BAT_A, BAT_B = (-0.200, 0.318), (-0.408, 0.762)     # battery axis, bottom -> top
+BAT_DEPTH, BAT_W = 0.112, 0.092
+
+
 def battery():
-    bb_, bt = (-0.125, 0.355), (-0.255, 0.745)
-    a3, b3 = P(0, bb_), P(0, bt)
-    mid = (a3 + b3) / 2
-    length = (b3 - a3).length
-    m = tube_matrix(a3, b3, mid)
-    lib.box('battery', (0.088, 0.10, length), 'paint_black', 'swingarm', matrix=m, bevel=0.012)
+    a3, b3 = P(0, BAT_A), P(0, BAT_B)
     axis = (b3 - a3).normalized()
-    lib.box('battery_cap', (0.092, 0.104, 0.04), 'plastic_gloss', 'swingarm', matrix=tube_matrix(a3, b3, b3 - axis * 0.012),
-            bevel=0.01)
-    lib.box('battery_base', (0.094, 0.106, 0.035), 'plastic_black', 'swingarm', matrix=tube_matrix(a3, b3, a3 + axis * 0.01),
-            bevel=0.006)
-    fwd = axis.cross(V((1, 0, 0))) * -1
-    led = b3 + axis * 0.009 + fwd * 0.03
-    lib.cylinder('battery_led', 0.005, 0, 'led_green', 'swingarm', start=led, end=led + axis * 0.003, verts=16)
-    lib.cylinder('battery_lock', 0.007, 0, 'steel', 'swingarm', start=V((0.044, 0, 0)) + a3.lerp(b3, 0.82),
-                 end=V((0.050, 0, 0)) + a3.lerp(b3, 0.82), verts=20)
-    lib.stripes('decal_battery_stripes', a3, b3, 0.044, 0.09, 9, 0.015, -38, 'decal_yellow', 'swingarm',
-                start=0.52, end=0.93)
-    lib.stripes('decal_battery_stripes_low', a3, b3, 0.044, 0.09, 3, 0.012, -38, 'decal_yellow', 'swingarm',
-                start=0.04, end=0.12)
-    d = (bt[0] - bb_[0], bt[1] - bb_[1])
+    length = (b3 - a3).length
+    m = tube_matrix(a3, b3, (a3 + b3) / 2 - axis * 0.02)
+    lib.box('battery', (BAT_W, BAT_DEPTH, length - 0.04), 'paint_black', 'swingarm', matrix=m, bevel=0.012)
+    # top cap: grey-black plastic, sloped, with the key switch and the LED charge indicator
+    capm = tube_matrix(a3, b3, b3 - axis * 0.026)
+    lib.box('battery_cap', (BAT_W + 0.004, BAT_DEPTH + 0.006, 0.052), 'plastic_gloss', 'swingarm', matrix=capm, bevel=0.012)
+    lib.box('battery_cap_top', (BAT_W - 0.006, BAT_DEPTH - 0.008, 0.012), 'plastic_black', 'swingarm',
+            matrix=capm @ Matrix.Translation(V((0, 0, 0.027))), bevel=0.004)
+    back = V((0, -axis.z, axis.y))          # towards the rear of the bike, perpendicular to the axis
+    if back.y > 0:
+        back = -back
+    top = b3 + axis * 0.0015
+    for k, (mat, off) in enumerate((('led_green', 0.0), ('lens_red', 0.011), ('lens_white', 0.022))):
+        p = top + back * (0.018 + off) + V((0.012, 0, 0))
+        lib.cylinder('battery_led%d' % k, 0.0042, 0, mat, 'swingarm', start=p, end=p + axis * 0.002, verts=16)
+    p = top + back * 0.03 + V((-0.018, 0, 0))
+    lib.cylinder('battery_key', 0.009, 0, 'steel_dark', 'swingarm', start=p - axis * 0.002, end=p + axis * 0.004, verts=20)
+    lib.box('battery_base', (BAT_W + 0.004, BAT_DEPTH + 0.004, 0.03), 'plastic_black', 'swingarm',
+            matrix=tube_matrix(a3, b3, a3 + axis * 0.0), bevel=0.006)
+    lib.stripes('decal_battery_stripes', a3, b3, BAT_W / 2, BAT_DEPTH * 0.55, 15, 0.0085, -50, 'decal_yellow', 'swingarm',
+                start=0.47, end=0.89, shift=BAT_DEPTH * 0.19)
+    lib.stripes('decal_battery_stripes_low', a3, b3, BAT_W / 2, BAT_DEPTH * 0.45, 5, 0.0055, -50, 'decal_yellow',
+                'swingarm', start=0.07, end=0.15, shift=BAT_DEPTH * 0.22)
+    d = (BAT_B[0] - BAT_A[0], BAT_B[1] - BAT_A[1])
     dl = math.hypot(*d)
-    d = (d[0] / dl, d[1] / dl)
+    d = (-d[0] / dl, -d[1] / dl)          # the script reads downwards along the battery
     for s in (1, -1):
-        lib.logo('decal_logo_battery%+d' % s, along(bb_, bt, 0.30), d, s, 0.0445, 0.032, 'decal_yellow', 'swingarm')
+        rd = d if s > 0 else (-d[0], -d[1])
+        lib.logo('decal_logo_battery%+d' % s, along(BAT_A, BAT_B, 0.31), rd, s, BAT_W / 2 + 0.0005, 0.036,
+                 'decal_yellow', 'swingarm')
+
+
+SEATSTAY = [(-0.630, 0.372), (-0.560, 0.468), (-0.500, 0.530), (-0.430, 0.570), (-0.380, 0.578), (-0.300, 0.565),
+            (-0.220, 0.540), (-0.165, 0.524)]
+
+
+SEATSTAY_X = (0.100, 0.096, 0.090, 0.082, 0.076, 0.068, 0.060, 0.052)
+CHAINSTAY3 = [(0.098, RA[0] + 0.012, RA[1] - 0.004), (0.084, -0.45, 0.318), (0.077, -0.30, 0.307),
+              (0.072, PV[0] - 0.012, PV[1])]
+
+
+def path_dashes(name, path, side, hw, count, width, height, slant_deg, mat, bone, shift=0.0, start=0.0, end=1.0):
+    """Slanted decal dashes on the outer side face of a swept member that follows a curved 3D path."""
+    import bmesh
+    path = [V(p) for p in path]
+    cum = [0.0]
+    for a, b in zip(path, path[1:]):
+        cum.append(cum[-1] + (b - a).length)
+    total = cum[-1]
+    bm = bmesh.new()
+    k_slant = math.tan(math.radians(slant_deg)) * height
+    for i in range(count):
+        u = (start + (end - start) * (i + 0.5) / count) * total
+        j = max(1, min(len(path) - 1, next((q for q, c in enumerate(cum) if c >= u), len(path) - 1)))
+        f = (u - cum[j - 1]) / max(cum[j] - cum[j - 1], 1e-9)
+        p = path[j - 1].lerp(path[j], f)
+        t = (path[j] - path[j - 1]).normalized()
+        t = V((0, t.y, t.z)).normalized()
+        nrm = V((0, -t.z, t.y))
+        if nrm.z < 0:
+            nrm = -nrm
+        c = V((p.x + side * (hw + 0.0006), p.y, p.z)) + nrm * shift
+        h = height / 2
+        quad = [c - t * (width / 2 + k_slant / 2) - nrm * h, c + t * (width / 2 - k_slant / 2) - nrm * h,
+                c + t * (width / 2 + k_slant / 2) + nrm * h, c - t * (width / 2 - k_slant / 2) + nrm * h]
+        vs = [bm.verts.new(q) for q in quad]
+        bm.faces.new(vs if side > 0 else list(reversed(vs)))
+    return lib.bm_to_obj(name, bm, mat, bone, smooth=False)
 
 
 def swingarm():
-    rw = lambda u: lib.rrect_profile(0.021, 0.036 - 0.01 * u, 0.008)
     for s in (1, -1):
-        cs = lib.resample(lib.fillet([P(s * 0.056, PV), P(s * 0.072, (-0.30, 0.334)), P(s * 0.097, RA)], 0.1), 0.01)
-        lib.sweep('swingarm_chainstay%+d' % s, cs, rw, 'paint_yellow', 'swingarm')
-        ss = lib.resample(lib.fillet([P(s * 0.097, add(RA, (0.0, 0.012))), P(s * 0.078, (-0.34, 0.40)),
-                                      P(s * 0.062, SN)], 0.1), 0.01)
-        lib.sweep('swingarm_seatstay%+d' % s, ss, lambda u: lib.rrect_profile(0.02, 0.03, 0.008),
-                  'paint_yellow', 'swingarm')
-        lib.stripes('decal_stay_dashes%+d' % s, P(s * 0.083, (-0.42, 0.392)), P(s * 0.066, (-0.10, 0.437)), 0.0105, 0.012,
-                    16, 0.006, 30, 'decal_black', 'swingarm', sides=(s,), shift=0.007)
-        lib.sweep('swingarm_strut%+d' % s, lib.resample([P(s * 0.056, PV), P(s * 0.062, SN)], 0.01),
-                  lambda u: lib.rrect_profile(0.02, 0.03, 0.007), 'paint_yellow', 'swingarm')
-        lib.box('dropout%+d' % s, (0.009, 0.065, 0.05), 'paint_yellow', 'swingarm', loc=(s * 0.099, RA[0] + 0.012, RA[1] + 0.006),
-                bevel=0.006)
-    lib.cylinder('pivot_housing', 0.019, 0, 'paint_yellow', 'swingarm', start=P(-0.068, PV), end=P(0.068, PV), verts=32,
-                 bevel=0.002)
-    lib.cylinder('pivot_bolt', 0.008, 0, 'steel', 'swingarm', start=P(-0.075, PV), end=P(0.075, PV), verts=16)
-    lib.cylinder('upper_bridge', 0.012, 0, 'paint_yellow', 'swingarm', start=P(-0.07, SN), end=P(0.07, SN), verts=24)
-    # onebike.co.il on the right chainstay, black on yellow
-    cs = lib.resample(lib.fillet([P(0.056, PV), P(0.072, (-0.30, 0.334)), P(0.097, RA)], 0.1), 0.01)
-    a, b = cs[int(len(cs) * 0.62)], cs[int(len(cs) * 0.30)]
-    xa = (b - a).normalized()
-    za = xa.cross(V((0, 0, 1))).normalized()
-    ya = za.cross(xa)
-    c = (a + b) / 2 + za * 0.0112
-    lib.text('decal_url', 'onebike.co.il', 0.0145, 'decal_black', 'swingarm', lib.basis(xa, ya, za, c),
+        cs = [V((s * x, y, z)) for x, y, z in lib.spline(CHAINSTAY3, 8)]
+        lib.sweep('swingarm_chainstay%+d' % s, lib.resample(cs, 0.01),
+                  lambda u: lib.rrect_profile(0.022, 0.034, 0.009), 'paint_yellow', 'swingarm')
+        ss = [V((s * x, y, z)) for x, y, z in lib.spline([(x, y, z) for x, (y, z) in zip(SEATSTAY_X, SEATSTAY)], 6)]
+        lib.sweep('swingarm_seatstay%+d' % s, lib.resample(ss, 0.01),
+                  lambda u: lib.rrect_profile(0.021, 0.032, 0.009), 'paint_yellow', 'swingarm')
+        # black dashes along the upper edge of the seat stay
+        path_dashes('decal_stay_dashes%+d' % s, ss, s, 0.0105, 24, 0.0055, 0.010, 32, 'decal_black', 'swingarm',
+                    shift=0.0085, start=0.30, end=0.97)
+        # dropout plate with the axle slot
+        lib.plate('dropout%+d' % s, [(RA[0] - 0.026, RA[1] - 0.018), (RA[0] + 0.03, RA[1] - 0.026),
+                                     (RA[0] + 0.045, RA[1] + 0.03), (RA[0] + 0.012, RA[1] + 0.06),
+                                     (RA[0] - 0.022, RA[1] + 0.03)],
+                  s * 0.091, s * 0.104, 'paint_yellow', 'swingarm', bevel=0.003)
+        # shock bracket plates with the silver bolt
+        lib.plate('shock_bracket%+d' % s, [(SN[0] - 0.026, SN[1] - 0.022), (SN[0] + 0.02, SN[1] - 0.02),
+                                           (SN[0] + 0.022, SN[1] + 0.018), (SN[0] - 0.012, SN[1] + 0.024),
+                                           (SN[0] - 0.04, SN[1] + 0.002)],
+                  s * 0.040, s * 0.056, 'paint_yellow', 'swingarm', bevel=0.004)
+        lib.cylinder('shock_bolt%+d' % s, 0.0068, 0, 'steel', 'swingarm', start=P(s * 0.056, SN), end=P(s * 0.062, SN),
+                     verts=6)
+    lib.cylinder('pivot_housing', 0.02, 0, 'paint_yellow', 'swingarm', start=P(-0.072, PV), end=P(0.072, PV), verts=32,
+                 bevel=0.003)
+    for s in (1, -1):
+        lib.cylinder('pivot_bolt%+d' % s, 0.009, 0, 'steel', 'swingarm', start=P(s * 0.072, PV), end=P(s * 0.078, PV),
+                     verts=6)
+    lib.cylinder('upper_bridge', 0.011, 0, 'paint_yellow', 'swingarm', start=P(-0.05, SN), end=P(0.05, SN), verts=24)
+    # black link box between the shock bracket and the pivot, in front of the battery (controller), white label
+    a3, b3 = P(0, (-0.205, 0.335)), P(0, (-0.152, 0.505))
+    lm = tube_matrix(a3, b3, (a3 + b3) / 2)
+    lib.box('controller', (0.056, 0.042, (b3 - a3).length), 'plastic_black', 'swingarm', matrix=lm, bevel=0.005)
+    lib.box('controller_label', (0.001, 0.026, 0.05), 'decal_white', 'swingarm',
+            matrix=lm @ Matrix.Translation(V((0.0285, 0.0, 0.035))))
+    lib.cylinder('chainstay_bridge', 0.012, 0, 'paint_yellow', 'swingarm', start=P(-0.08, (-0.40, 0.311)),
+                 end=P(0.08, (-0.40, 0.311)), verts=20)
+    # onebike.co.il on the right chainstay, black on yellow, followed by a short block of slanted stripes
+    cs = lib.spline(CHAINSTAY3, 8)
+    near = lambda yy: min(cs, key=lambda p: abs(p.y - yy))
+    a, b = near(-0.40), near(-0.32)
+    xa = V((0, b.y - a.y, b.z - a.z)).normalized()
+    za = V((1, 0, 0))
+    ya = za.cross(xa).normalized()
+    c = (a + b) / 2
+    c.x += 0.0116
+    lib.text('decal_url', 'onebike.co.il', 0.0148, 'decal_black', 'swingarm', lib.basis(xa, ya, za, c),
              font_path=lib.FONT_SANS)
+    seg = [p for p in cs if -0.31 <= p.y <= -0.255]
+    if len(seg) >= 2:
+        path_dashes('decal_chainstay_stripes', seg, 1, 0.011, 5, 0.0045, 0.017, -30, 'decal_black', 'swingarm')
 
 
 def shock():
-    a, b = P(0, SN), P(0, FM)
+    """Coil-over: black body and eye at the arch (FM), yellow spring down to the swingarm bracket (SN)."""
+    a, b = P(0, FM), P(0, SN)
     d = (b - a)
     L = d.length
     u = d.normalized()
-    lib.cylinder('shock_body', 0.016, 0, 'alloy_black', 'chassis', start=a + u * 0.012, end=a + u * (0.55 * L), verts=32,
+    lib.cylinder('shock_body', 0.0155, 0, 'alloy_black', 'chassis', start=a + u * 0.010, end=a + u * (0.46 * L), verts=32,
                  bevel=0.002)
-    lib.cylinder('shock_shaft', 0.0075, 0, 'steel', 'chassis', start=a + u * (0.5 * L), end=b - u * 0.015, verts=20)
-    lib.cylinder('shock_reservoir', 0.011, 0, 'alloy_black', 'chassis', start=a + u * 0.03 + V((0, 0, 0.022)),
-                 end=a + u * 0.10 + V((0, 0, 0.022)), verts=20, bevel=0.002)
+    lib.cylinder('shock_body_cap', 0.0175, 0, 'alloy_black', 'chassis', start=a + u * 0.012, end=a + u * 0.032, verts=32,
+                 bevel=0.002)
+    lib.cylinder('shock_shaft', 0.0072, 0, 'steel', 'chassis', start=a + u * (0.40 * L), end=b - u * 0.012, verts=20)
+    lib.cylinder('shock_bumper', 0.011, 0, 'rubber', 'chassis', start=a + u * (0.46 * L), end=a + u * (0.52 * L), verts=20)
     for p in (a, b):
-        lib.cylinder('shock_eye', 0.011, 0, 'steel_dark', 'chassis', start=p - V((0.016, 0, 0)), end=p + V((0.016, 0, 0)),
+        lib.cylinder('shock_eye', 0.0105, 0, 'steel_dark', 'chassis', start=p - V((0.013, 0, 0)), end=p + V((0.013, 0, 0)),
                      verts=20)
-    s0, s1 = a + u * 0.045, a + u * (L - 0.035)
-    lib.cylinder('spring_seat_a', 0.031, 0, 'plastic_black', 'chassis', start=s0 - u * 0.006, end=s0, verts=32)
-    lib.cylinder('spring_seat_b', 0.031, 0, 'plastic_black', 'chassis', start=s1, end=s1 + u * 0.006, verts=32)
+    lib.cylinder('shock_upper_bolt', 0.0062, 0, 'steel', 'chassis', start=a + V((0.018, 0, 0)), end=a + V((0.026, 0, 0)),
+                 verts=6)
+    s0, s1 = a + u * 0.036, b - u * 0.014
+    lib.cylinder('spring_seat_a', 0.0285, 0, 'alloy_black', 'chassis', start=s0 - u * 0.006, end=s0, verts=32)
+    lib.cylinder('spring_preload', 0.022, 0, 'alloy_black', 'chassis', start=s0 - u * 0.012, end=s0 - u * 0.006, verts=24)
+    lib.cylinder('spring_seat_b', 0.027, 0, 'alloy_black', 'chassis', start=s1, end=s1 + u * 0.006, verts=32)
     m = lib.frame_from_z(u, (0, 0, 0))
     xa, ya = V(m.col[0][:3]), V(m.col[1][:3])
-    coils, steps = 8, 8 * 24
+    coils, steps = 7.5, 7 * 28
     pts = []
     for k in range(steps + 1):
         t = k / steps
         ang = 2 * math.pi * coils * t
-        pts.append(s0.lerp(s1, t) + (xa * math.cos(ang) + ya * math.sin(ang)) * 0.026)
-    lib.pipe('shock_spring', pts, 0.0042, 'paint_yellow', 'chassis', verts=10)
+        pts.append(s0.lerp(s1, t) + (xa * math.cos(ang) + ya * math.sin(ang)) * 0.0215)
+    lib.pipe('shock_spring', pts, 0.0048, 'paint_yellow', 'chassis', verts=10)
 
 
 def fender(name, c, r, a0, a1, bone, hw=0.07):
@@ -377,36 +514,70 @@ def fender(name, c, r, a0, a1, bone, hw=0.07):
     return lib.sweep(name, pts, lambda u: prof, 'plastic_gloss', bone, weighted=False)
 
 
-def rack():
-    y = 'paint_yellow'
-    loop = [(-0.085, -0.285, 0.677), (-0.085, -0.335, 0.715), (-0.085, -0.92, 0.715), (-0.07, -0.958, 0.715),
-            (0.07, -0.958, 0.715), (0.085, -0.92, 0.715), (0.085, -0.335, 0.715), (0.085, -0.285, 0.677)]
-    lib.pipe('rack_top', [V(p) for p in loop], 0.0105, y, 'swingarm', fillet_r=0.03, verts=16)
-    for s in (1, -1):
-        lib.pipe('rack_lower%+d' % s, [V((s * 0.105, -0.37, 0.662)), V((s * 0.105, -0.93, 0.662)),
-                                       V((s * 0.09, -0.952, 0.702))], 0.009, y, 'swingarm', fillet_r=0.03, verts=14)
-        for yy in (-0.47, -0.70):
-            lib.pipe('rack_post%+d' % s, [V((s * 0.087, yy, 0.711)), V((s * 0.104, yy, 0.666))], 0.0075, y, 'swingarm',
-                     verts=12)
-        foot = V((s * 0.105, RA[0] + 0.01, RA[1] + 0.035))
-        lib.pipe('rack_strut_f%+d' % s, [foot, V((s * 0.105, -0.43, 0.662))], 0.0095, y, 'swingarm', verts=14)
-        lib.pipe('rack_strut_r%+d' % s, [foot, V((s * 0.105, -0.83, 0.662))], 0.0095, y, 'swingarm', verts=14)
-    lib.pipe('rack_front_bar', [V((-0.085, -0.285, 0.677)), V((0.085, -0.285, 0.677))], 0.009, y, 'swingarm', verts=14)
+RACK_X = 0.098
+CUSHION = (-0.860, -0.494, 0.708, 0.758, 0.176)       # rear y, front y, base z, top z, width
 
-    lib.box('cushion_base', (0.16, 0.56, 0.012), 'plastic_black', 'swingarm', loc=(0, -0.62, 0.726), bevel=0.004)
-    lib.box('cushion_skirt', (0.198, 0.60, 0.026), 'leather', 'swingarm', loc=(0, -0.62, 0.745), bevel=0.01)
-    pleats = 11
-    for k in range(pleats):
-        yy = -0.32 - (k + 0.5) * 0.60 / pleats
-        end = k in (0, pleats - 1)
-        pad = lib.box('cushion_pleat%d' % k, (0.196, 0.60 / pleats - 0.0015, 0.042), 'leather', 'swingarm',
-                      loc=(0, yy, 0.762), bevel=0.016 if end else 0.006, segments=3)
-        lib.add_subsurf(pad, 1)
+
+def rack():
+    """Yellow rack: on each side a top rail with a rounded rear loop that runs back down to the seat stay,
+    an inner U-strut, and a front leg into the seat stay apex; cross tubes; quilted passenger cushion."""
+    y = 'paint_yellow'
+    r = 0.0105
     for s in (1, -1):
-        lib.logo('decal_logo_cushion%+d' % s, (-0.43, 0.748), (1.0, 0.0) if s > 0 else (-1.0, 0.0), s, 0.0995, 0.024,
-                 'decal_yellow', 'swingarm')
-    lib.box('taillight_body', (0.07, 0.022, 0.03), 'plastic_gloss', 'swingarm', loc=(0, -0.962, 0.687), bevel=0.006)
-    lib.box('taillight_lens', (0.058, 0.004, 0.02), 'lens_red', 'swingarm', loc=(0, -0.9735, 0.687), bevel=0.0015)
+        x = s * RACK_X
+        side = [V((s * 0.078, -0.392, 0.582)), V((s * 0.088, -0.432, 0.640)), V((x, -0.468, 0.700)),
+                V((x, -0.500, RACK_Z)), V((x, -0.858, RACK_Z)), V((x, -0.882, 0.680)), V((x, -0.880, 0.628)),
+                V((x, -0.862, 0.608)), V((s * 0.095, -0.700, 0.551)), V((s * 0.093, -0.536, 0.495))]
+        lib.pipe('rack_side%+d' % s, side, r, y, 'swingarm', fillet_r=0.028, verts=18, step=0.008)
+        inner = [V((x, -0.738, RACK_Z)), V((x, -0.730, 0.650)), V((s * 0.097, -0.700, 0.622)),
+                 V((s * 0.092, -0.515, 0.514))]
+        lib.pipe('rack_inner%+d' % s, inner, 0.0098, y, 'swingarm', fillet_r=0.03, verts=18, step=0.008)
+        # rack mount plate on the seat stay, with a hole
+        hole = [(-0.528 + 0.0065 * math.cos(a), 0.476 + 0.0065 * math.sin(a)) for a in
+                (2 * math.pi * k / 16 for k in range(16))]
+        lib.plate('rack_mount%+d' % s, [(-0.55, 0.47), (-0.51, 0.468), (-0.50, 0.51), (-0.525, 0.53), (-0.548, 0.505)],
+                  s * 0.086, s * 0.094, y, 'swingarm', holes=[hole], bevel=0.002)
+    for yy, zz, rr in ((-0.882, 0.652, 0.0095), (-0.80, RACK_Z, 0.008), (-0.56, RACK_Z, 0.008), (-0.47, 0.70, 0.009)):
+        lib.cylinder('rack_cross', rr, 0, y, 'swingarm', start=V((-RACK_X, yy, zz)), end=V((RACK_X, yy, zz)), verts=16)
+    cushion()
+    lib.box('taillight_body', (0.072, 0.026, 0.032), 'plastic_gloss', 'swingarm', loc=(0, -0.872, 0.668), bevel=0.007)
+    lib.box('taillight_lens', (0.060, 0.004, 0.021), 'lens_red', 'swingarm', loc=(0, -0.8855, 0.668), bevel=0.0015)
+
+
+def cushion():
+    """Passenger cushion: rounded block, top quilted in shallow transverse channels, piping round the top edge."""
+    import bmesh
+    y0, y1, zb, zt, w = CUSHION
+    half = V((w / 2, (y1 - y0) / 2, (zt - zb) / 2))
+    ctr = V((0, (y0 + y1) / 2, (zb + zt) / 2))
+    rad = 0.018
+    inner = half - V((rad, rad, rad))
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=lib.n(30, 4), use_grid_fill=True)
+    pitch = (y1 - y0) / 11
+    for v in bm.verts:
+        p = V((v.co.x * half.x, v.co.y * half.y, v.co.z * half.z))
+        q = V((max(-inner.x, min(inner.x, p.x)), max(-inner.y, min(inner.y, p.y)), max(-inner.z, min(inner.z, p.z))))
+        nd = (p - q)
+        nd = nd.normalized() if nd.length > 1e-9 else V((0, 0, 1))
+        out = q + nd * rad
+        if nd.z > 0.3 and lib.DETAIL >= 0.5:
+            ph = (p.y + half.y) / pitch
+            groove = 0.0045 * (1 - abs(math.cos(math.pi * ph))) ** 6
+            edge = max(0.0, 1 - abs(p.x) / half.x)
+            out.z += 0.004 * min(1.0, edge * 4) - groove * min(1.0, edge * 3)
+        v.co = ctr + out
+    ob = lib.bm_to_obj('cushion', bm, 'leather', 'swingarm')
+    lib.add_subsurf(ob, 1)
+    lib.box('cushion_base', (w - 0.03, y1 - y0 - 0.03, 0.012), 'plastic_black', 'swingarm',
+            loc=(0, (y0 + y1) / 2, zb + 0.002), bevel=0.003)
+    edge = [V((sx * (half.x - 0.003), yy, zt - 0.006)) for sx, yy in
+            [(1, y0 + 0.03), (1, y1 - 0.03), (-1, y1 - 0.03), (-1, y0 + 0.03), (1, y0 + 0.03)]]
+    lib.pipe('cushion_piping', edge, 0.0028, 'piping', 'swingarm', fillet_r=0.02, verts=8, step=0.01)
+    for s in (1, -1):
+        lib.logo('decal_logo_cushion%+d' % s, (-0.665, (zb + zt) / 2 + 0.002), (1.0, 0.0) if s > 0 else (-1.0, 0.0), s,
+                 half.x + 0.0006, 0.021, 'decal_yellow', 'swingarm')
 
 
 # ------------------------------------------------------------- front end
@@ -723,7 +894,7 @@ def drivetrain():
     me_ob = lib.bm_to_obj('decal_chainguard', bm, 'decal_yellow', 'crank', smooth=False)
 
     # crank arms and pedals
-    for s, ang, bone in ((1, -60.0, 'pedal_r'), (-1, 120.0, 'pedal_l')):
+    for s, ang, bone in ((1, 21.0, 'pedal_r'), (-1, 201.0, 'pedal_l')):
         a = math.radians(ang)
         pe = (BB[0] + 0.17 * math.cos(a), BB[1] + 0.17 * math.sin(a))
         x = 0.117 if s > 0 else -0.072
@@ -754,7 +925,7 @@ def drivetrain():
     lib.cylinder('freehub', 0.018, 0, 'alloy_black', 'wheel_lr', start=P(0.06, RA), end=P(0.096, RA), verts=32)
 
     # derailleur
-    ju, jl, rj = (-0.618, 0.262), (-0.594, 0.186), 0.0225
+    ju, jl, rj = (RA[0] + 0.030, RA[1] - 0.068), (RA[0] + 0.054, RA[1] - 0.144), 0.0225
     lib.box('derailleur_body', (0.018, 0.03, 0.055), 'alloy_black', 'swingarm', loc=(0.104, RA[0] - 0.012, RA[1] - 0.035),
             bevel=0.005)
     for xx in (0.0745, 0.0925):
@@ -796,7 +967,7 @@ def drivetrain():
     bm = bmesh.new()
     for k, (a, b) in enumerate(zip(samples, samples[1:])):
         c = (a + b) / 2
-        x = 0.093 + (0.0786 - 0.093) * ((0.02 - c.y) / 0.64)
+        x = 0.093 + (0.0786 - 0.093) * ((BB[0] - c.y) / (BB[0] - RA[0]))
         x = min(0.093, max(0.0786, x))
         t = (b - a).normalized()
         nrm = t.cross(V((1, 0, 0))).normalized()
@@ -810,7 +981,7 @@ def drivetrain():
 
 def brakes_and_cables(yc, zc):
     for name, c, x, bone in (('caliper_rear', RA, -0.086, 'swingarm'), ('caliper_front', FA, -0.084, 'forks_l')):
-        ang = 55 if c is RA else 118
+        ang = 40 if c is RA else 118
         a = math.radians(ang)
         p = (c[0] + 0.088 * math.cos(a), c[1] + 0.088 * math.sin(a))
         tang = (-math.sin(a), math.cos(a))
@@ -834,17 +1005,17 @@ def brakes_and_cables(yc, zc):
         return ([lever, (lever[0] * 0.5, yc - 0.02, zc - 0.05)]
                 + [(x,) + add(add(HT_TOP, sdir, 0.14), back_stem, 0.034),
                    (x,) + add(add(HB, UP, 0.07), back_head, 0.045),
-                   (x,) + under(HT_MID, HG, 0.35, 0.05),
-                   (x,) + under(HT_MID, HG, 0.95, 0.05),
-                   (x,) + under(HG, N, 0.6, 0.047)] + tail)
+                   (x,) + under(HT_MID, MT_A, 0.30, 0.05),
+                   (x,) + under(HT_MID, MT_A, 0.92, 0.048),
+                   (x * 1.5, 0.048, 0.50), (x * 1.5, 0.026, 0.42)] + tail)
 
     cables = {
-        'cable_rear_brake': (route(0.012, [(-0.04, 0.0, 0.40), (-0.062, -0.25, 0.36), (-0.075, -0.50, 0.375),
-                                           (-0.086, -0.555, 0.41)], (0.19, yc - 0.07, zc + 0.04)), 0.0026),
-        'cable_motor': (route(0.0, [(0.058, 0.02, 0.43), (0.062, -0.25, 0.362), (0.09, -0.56, 0.35), (0.10, -0.60, 0.34)],
-                              (0.168, yc - 0.075, zc + 0.04)), 0.0036),
-        'cable_shift': (route(-0.012, [(0.05, 0.03, 0.43), (0.075, -0.25, 0.362), (0.098, -0.60, 0.30)],
-                              (0.15, yc - 0.075, zc + 0.04)), 0.0026),
+        'cable_rear_brake': (route(-0.012, [(-0.04, -0.02, 0.37), (-0.066, -0.25, 0.345), (-0.078, -0.48, 0.36),
+                                            (-0.086, -0.565, 0.375)], (0.19, yc - 0.07, zc + 0.04)), 0.0026),
+        'cable_motor': (route(0.0, [(0.045, -0.02, 0.37), (0.075, -0.25, 0.288), (0.09, -0.50, 0.295),
+                                    (0.10, RA[0] + 0.035, RA[1] - 0.012)], (0.168, yc - 0.075, zc + 0.04)), 0.0036),
+        'cable_shift': (route(0.012, [(0.05, -0.02, 0.375), (0.078, -0.25, 0.292), (0.095, -0.50, 0.30),
+                                      (0.104, RA[0] + 0.02, RA[1] - 0.05)], (0.15, yc - 0.075, zc + 0.04)), 0.0026),
         'cable_front_brake': ([(-0.19, yc - 0.07, zc + 0.04), (-0.10, yc - 0.03, zc - 0.05),
                                (-0.035,) + add(add(HT_TOP, sdir, 0.14), back_stem, 0.03),
                                (-0.06,) + add(add(HB, UP, 0.0), back_head, 0.03),
@@ -853,8 +1024,11 @@ def brakes_and_cables(yc, zc):
     }
     for name, (pts, r) in cables.items():
         lib.pipe(name, [V(p) for p in pts], r, 'plastic_gloss', 'chassis', fillet_r=0.05, verts=10, step=0.02)
-    lib.pipe('kickstand', [V((-0.075, 0.0, 0.31)), V((-0.095, -0.30, 0.255))], 0.0095, 'alloy_black', 'chassis', verts=16)
-    lib.box('kickstand_foot', (0.03, 0.04, 0.012), 'alloy_black', 'chassis', loc=(-0.096, -0.31, 0.25), bevel=0.003)
+    # kickstand on the left, down on the ground as in the photo
+    lib.box('kickstand_mount', (0.016, 0.05, 0.03), 'alloy_black', 'chassis', loc=(-0.042, -0.13, 0.218), bevel=0.003)
+    # folded up along the left chainstay (not visible from the right in the photo)
+    lib.pipe('kickstand', [V((-0.05, -0.13, 0.214)), V((-0.072, -0.40, 0.268))], 0.0095, 'alloy_black', 'chassis', verts=16)
+    lib.box('kickstand_foot', (0.02, 0.05, 0.03), 'rubber', 'chassis', loc=(-0.074, -0.405, 0.27), bevel=0.003)
 
 
 def build(reset=True, collection='OneBike'):
@@ -870,7 +1044,7 @@ def build(reset=True, collection='OneBike'):
     battery()
     swingarm()
     shock()
-    fender('fender_rear', RA, 0.36, 32, 160, 'swingarm')
+    fender('fender_rear', RA, 0.356, 47, 127, 'swingarm', hw=0.068)
     rack()
     hl = fork()
     yc, zc = cockpit()

@@ -457,6 +457,41 @@ def sweep(name, path, profile_fn, mat, bone, ref=(1, 0, 0), caps=True, weighted=
     return bm_to_obj(name, bm, mat, bone, weighted=weighted)
 
 
+def plate(name, outline, x0, x1, mat, bone, holes=(), bevel=0.0, segments=3, smooth=True):
+    """Flat part drawn in side view: closed (y, z) outline (with optional holes) extruded from x0 to x1."""
+    bm = bmesh.new()
+    loops = [outline] + list(holes)
+    edges = []
+    for loop in loops:
+        vs = [bm.verts.new((x0, p[0], p[1])) for p in loop]
+        edges += [bm.edges.new((vs[k], vs[(k + 1) % len(vs)])) for k in range(len(vs))]
+    faces = bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=True, edges=edges)['geom']
+    faces = [f for f in faces if isinstance(f, bmesh.types.BMFace)]
+    ext = bmesh.ops.extrude_face_region(bm, geom=faces)
+    moved = [g for g in ext['geom'] if isinstance(g, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=moved, vec=(x1 - x0, 0.0, 0.0))
+    ob = bm_to_obj(name, bm, mat, bone, smooth=smooth, weighted=True)
+    if bevel:
+        add_bevel(ob, bevel, segments, 30.0)
+    return ob
+
+
+def spline(points, steps=8):
+    """Catmull-Rom curve through 2D or 3D points."""
+    pts = [V(p) if len(p) == 3 else V((p[0], p[1], 0.0)) for p in points]
+    flat = all(len(p) == 2 for p in points)
+    out = []
+    for i in range(len(pts) - 1):
+        p0, p1, p2, p3 = pts[max(i - 1, 0)], pts[i], pts[i + 1], pts[min(i + 2, len(pts) - 1)]
+        for k in range(steps):
+            t = k / steps
+            t2, t3 = t * t, t * t * t
+            q = 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+            out.append(q)
+    out.append(pts[-1])
+    return [(q.x, q.y) for q in out] if flat else out
+
+
 def pipe(name, points, radius, mat, bone, fillet_r=0.0, verts=16, step=None, caps=True):
     path = fillet(points, fillet_r) if fillet_r else [V(p) for p in points]
     if step:
