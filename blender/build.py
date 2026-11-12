@@ -537,6 +537,7 @@ def fender(name, c, r, a0, a1, bone, hw=0.07, sag=0.022, beak=False, r_end=None)
 
 
 RACK_X = 0.098
+TAILLIGHT = (-0.886, 0.668)                            # red rear lamp lens, under the back of the rack
 CUSHION = (-0.860, -0.494, 0.708, 0.758, 0.176)       # rear y, front y, base z, top z, width
 
 
@@ -562,8 +563,10 @@ def rack():
     for yy, zz, rr in ((-0.882, 0.652, 0.0095), (-0.80, RACK_Z, 0.008), (-0.56, RACK_Z, 0.008), (-0.47, 0.70, 0.009)):
         lib.cylinder('rack_cross', rr, 0, y, 'swingarm', start=V((-RACK_X, yy, zz)), end=V((RACK_X, yy, zz)), verts=16)
     cushion()
-    lib.box('taillight_body', (0.072, 0.026, 0.032), 'plastic_gloss', 'swingarm', loc=(0, -0.872, 0.668), bevel=0.007)
-    lib.box('taillight_lens', (0.060, 0.004, 0.021), 'lens_red', 'swingarm', loc=(0, -0.8855, 0.668), bevel=0.0015)
+    lib.box('taillight_body', (0.072, 0.026, 0.032), 'plastic_gloss', 'swingarm',
+            loc=(0, TAILLIGHT[0] + 0.014, TAILLIGHT[1]), bevel=0.007)
+    lib.box('taillight_lens', (0.060, 0.004, 0.021), 'lens_red', 'swingarm', loc=(0, TAILLIGHT[0] + 0.0005, TAILLIGHT[1]),
+            bevel=0.0015)
 
 
 def cushion():

@@ -144,6 +144,12 @@ TEXTURES = {
     'onebike_display': display_wide,
     'onebike_white': lambda: solid((255, 255, 255)),
     'onebike_spec': lambda: solid((190, 190, 190)),
+    # specular maps per surface kind (R intensity, G glossiness, B fresnel): rubber and fabric must stay matte in game
+    'onebike_spec_matte': lambda: solid((14, 26, 40)),
+    'onebike_spec_satin': lambda: solid((60, 90, 110)),
+    'onebike_spec_gloss': lambda: solid((130, 170, 170)),
+    'onebike_spec_metal': lambda: solid((200, 210, 210)),
+    'onebike_spec_paint': lambda: solid((175, 200, 200)),
     'onebike_dirt': lambda: noise((118, 104, 86), 30, 64, 1.2, 3),
     'onebike_damage': lambda: solid((128, 128, 128)),
     'onebike_nrm': lambda: solid((128, 128, 255)),

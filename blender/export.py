@@ -67,6 +67,28 @@ SAMPLER_DEFAULTS = {
     'BumpSampler': 'onebike_nrm',
 }
 
+# How shiny each surface is in game: spec map + shader values, after GTA's own e-bike (Inductor: paint
+# specularIntensityMult 0.15, falloff 180, fresnel 0.97). The first export used one bright spec map everywhere,
+# which made fabric, rubber and plastic look like chrome.
+SPEC = {   # kind: (spec texture, specularIntensityMult, specularFalloffMult, specularFresnel)
+    'paint': ('onebike_spec_paint', 0.15, 180.0, 0.97),
+    'gloss': ('onebike_spec_gloss', 0.55, 90.0, 0.90),
+    'satin': ('onebike_spec_satin', 0.30, 40.0, 0.75),
+    'matte': ('onebike_spec_matte', 0.08, 12.0, 0.50),
+    'metal': ('onebike_spec_metal', 1.00, 120.0, 0.97),
+    'light': ('onebike_spec_gloss', 0.60, 100.0, 0.95),
+}
+SURFACE = {
+    'paint_black': 'paint', 'decal_black': 'paint', 'paint_yellow': 'paint', 'decal_yellow': 'paint',
+    'reflector_amber': 'paint', 'decal_white': 'satin', 'decal_red': 'satin',
+    'plastic_black': 'satin', 'plastic_gloss': 'gloss', 'piping': 'gloss', 'zipper': 'satin', 'alloy_black': 'satin',
+    'rubber': 'matte', 'tyre': 'matte', 'leather': 'satin', 'fabric': 'matte', 'mesh_fabric': 'matte',
+    'webbing': 'matte', 'button_rubber': 'matte',
+    'steel': 'metal', 'steel_dark': 'metal', 'chain': 'metal', 'rotor': 'metal',
+    'lens_white': 'light', 'lens_red': 'light', 'reflector_white': 'gloss', 'screen': 'gloss', 'screen_text': 'gloss',
+    'led_green': 'light', 'screen_display': 'light',
+}
+
 
 def P(x, yz):
     return Vector((x, yz[0], yz[1] - ORIGIN_Z))
@@ -106,7 +128,11 @@ def bone_table():
         ('wheelmeshbk_f_l2', 'wheel_lf', t(P(0, b.FA))),
         ('wheelmeshbk_f_ng', 'wheel_lf', t(P(0, b.FA))),
         ('dials', 'chassis', t(Vector((0, b.STEM_TOP[0] - 0.006, b.STEM_TOP[1] + 0.068 - ORIGIN_Z)))),
-        ('headlight_l', 'chassis', t(P(0, b.HEADLIGHT))),
+        ('headlight_l', 'forks_u', t(P(0, b.HEADLIGHT))),
+        # motorbike bones (the bike now drives like GTA's electric motorbike): rear light on the rack, hub motor
+        ('taillight_l', 'swingarm', t(P(0, b.TAILLIGHT))),
+        ('brakelight_l', 'swingarm', t(P(0, b.TAILLIGHT))),
+        ('engine', 'swingarm', t(P(0, b.RA))),
         ('chassis_dummy', 'chassis', t(P(0, (0, ORIGIN_Z)))),
     ]
 
@@ -217,12 +243,22 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
     for libname, (shader, diffuse, _light) in SHADERS.items():
         mat = shader_mats_mod.create_shader(shader + '.sps')
         mat.name = 'onebike_' + libname
+        spec_tex, spec_mult, spec_falloff, spec_fresnel = SPEC[SURFACE[libname]]
         for node in mat.node_tree.nodes:
-            if node.bl_idname != 'ShaderNodeTexImage':
-                continue
-            tex = diffuse if node.name == 'DiffuseSampler' else SAMPLER_DEFAULTS.get(node.name, 'onebike_white')
-            node.image = image(tex)
-            node.texture_properties.embedded = False
+            if node.bl_idname == 'ShaderNodeTexImage':
+                if node.name == 'DiffuseSampler':
+                    tex = diffuse
+                elif node.name == 'SpecSampler':
+                    tex = spec_tex
+                else:
+                    tex = SAMPLER_DEFAULTS.get(node.name, 'onebike_white')
+                node.image = image(tex)
+                node.texture_properties.embedded = False
+            elif node.bl_idname == 'SOLLUMZ_NT_SHADER_Parameter':
+                value = {'specularIntensityMult': spec_mult, 'specularFalloffMult': spec_falloff,
+                         'specularFresnel': spec_fresnel, 'reflectivePower': 0.45}.get(node.name)
+                if value is not None:
+                    node.set_float(value)
         mats[libname] = mat
     return mats
 
@@ -292,7 +328,8 @@ def main():
     for bone in ('handlebars', 'forks_u'):
         flags(bone, ('RotZ',))
     flags('forks_l', ('TransZ',))
-    for bone in ('chassis', 'wheel_lf', 'wheel_lr'):
+    # physics groups as in GTA's own bikes (Powersurge / Inductor): chassis, each wheel, the seat and chassis_dummy
+    for bone in ('chassis', 'wheel_lf', 'wheel_lr', 'seat_f', 'chassis_dummy'):
         arm.bones[bone].sollumz_use_physics = True
 
     drawable = bh.create_empty_object(SollumType.DRAWABLE, 'onebike.drawable')
@@ -338,22 +375,32 @@ def main():
         bh.add_child_of_bone_constraint(obj, frag, bone)
 
     z = -ORIGIN_Z
+    # chassis: three pieces like the Powersurge (front/cockpit, frame and drive, rear rack and battery)
     boxes = [   # matched to the photo-measured model (see build.py)
-        ('frame', (0.12, 0.76, 0.42), (0.0, 0.12, 0.63 + z), 12.0),
-        ('rear', (0.22, 0.52, 0.12), (0.0, -0.64, 0.72 + z), 6.0),
-        ('battery', (0.10, 0.20, 0.42), (0.0, -0.30, 0.54 + z), 5.0),
-        ('cockpit', (0.68, 0.30, 0.46), (0.0, 0.43, 1.15 + z), 5.0),
-        ('saddle', (0.22, 0.27, 0.10), (0.0, -0.227, 0.88 + z), 2.0),
-        ('drive', (0.30, 0.34, 0.22), (0.0, -0.11, 0.31 + z), 5.0),
+        ('front', (0.66, 0.34, 0.62), (0.0, 0.45, 1.04 + z), 63.0),
+        ('frame', (0.14, 0.78, 0.58), (0.0, 0.02, 0.52 + z), 63.0),
+        ('rear', (0.24, 0.62, 0.46), (0.0, -0.58, 0.55 + z), 63.0),
     ]
     for name, size, center, mass in boxes:
         obj = bh.create_blender_object(SollumType.BOUND_BOX, f'col_{name}')
         meshh.create_box(obj.data, 1, Matrix.LocRotScale(Vector(center), None, Vector(size)))
         bound(obj, 'chassis', car_metal, mass)
-    for bone in WHEEL_BONES:
-        obj = bh.create_blender_object(SollumType.BOUND_DISC, f'col_{bone}')
-        meshh.create_disc(obj.data, radius=build.TYRE_R, length=0.10)
-        bound(obj, bone, rubber, 7.0)
+    # each wheel has two identical discs in its group, the first one carries the wheel mesh (as in the game's bikes)
+    for bone, mass in (('wheel_lf', 9.3), ('wheel_lr', 12.0)):
+        for k in range(2):
+            obj = bh.create_blender_object(SollumType.BOUND_DISC, f'col_{bone}_{k}')
+            meshh.create_disc(obj.data, radius=build.TYRE_R, length=0.10)
+            bound(obj, bone, rubber, mass)
+    # seat: a capsule along the bike on seat_f
+    obj = bh.create_blender_object(SollumType.BOUND_CAPSULE, 'col_seat')
+    meshh.create_capsule(obj.data, radius=0.15, length=0.42, axis='Y')
+    bound(obj, 'seat_f', car_metal, 49.0)
+    # chassis_dummy: one box round the whole bike
+    lo = Vector((-0.35, -0.90, build.GROUND_Z + 0.02 - ORIGIN_Z))
+    hi = Vector((0.35, 0.96, 1.40 - ORIGIN_Z))
+    obj = bh.create_blender_object(SollumType.BOUND_BOX, 'col_dummy')
+    meshh.create_box(obj.data, 1, Matrix.LocRotScale((lo + hi) / 2, None, hi - lo))
+    bound(obj, 'chassis_dummy', car_metal, 420.0)
 
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'onebike_gta.blend'))
     # CodeWalker XML always; binary .yft too when Sollumz has PyMateria (the Windows install has it)
