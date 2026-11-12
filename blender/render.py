@@ -3,6 +3,7 @@
 Usage: python render.py <out_dir> <width> <samples> <view> [<view> ...]
 Views: front34, side, rear34, front, closeup_rear, closeup_cockpit
 """
+import math
 import os
 import sys
 
@@ -66,6 +67,27 @@ def studio():
     lib.area_light('top', (0.0, 0.0, 4.0), (0, 0, 0), 140, 3.5)
 
 
+def hdri_world(name='courtyard', strength=1.0, rotation_deg=0.0):
+    """Light the scene with one of the HDR environments that ship with Blender (datafiles/studiolights/world),
+    so glossy paint and plastic pick up real reflections. Returns False when the file is missing."""
+    path = os.path.join(bpy.utils.system_resource('DATAFILES'), 'studiolights', 'world', name + '.exr')
+    if not os.path.exists(path):
+        return False
+    world = bpy.context.scene.world
+    nt = world.node_tree
+    bg = nt.nodes.get('Background')
+    env = nt.nodes.new('ShaderNodeTexEnvironment')
+    env.image = bpy.data.images.load(path)
+    mapping = nt.nodes.new('ShaderNodeMapping')
+    coord = nt.nodes.new('ShaderNodeTexCoord')
+    mapping.inputs['Rotation'].default_value = (0, 0, math.radians(rotation_deg))
+    nt.links.new(coord.outputs['Generated'], mapping.inputs['Vector'])
+    nt.links.new(mapping.outputs['Vector'], env.inputs['Vector'])
+    nt.links.new(env.outputs['Color'], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = strength
+    return True
+
+
 def outdoor():
     """Sunlit paved courtyard instead of the studio backdrop."""
     scene = bpy.context.scene
@@ -96,8 +118,13 @@ def outdoor():
     bg = scene.world.node_tree.nodes.get('Background')
     bg.inputs['Color'].default_value = (0.78, 0.82, 0.88, 1)
     bg.inputs['Strength'].default_value = 0.55
+    if hdri_world('courtyard', 0.5, 150):      # real reflections in the black paint and plastics
+        try:
+            scene.view_settings.look = 'Medium High Contrast'
+        except TypeError:
+            pass
     for name in ('key', 'fill', 'rim', 'top'):
-        bpy.data.objects[name].data.energy *= 0.35
+        bpy.data.objects[name].data.energy *= 0.3
     sun_data = bpy.data.lights.new('sun', 'SUN')
     sun_data.energy = 2.6
     sun_data.angle = 0.02

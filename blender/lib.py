@@ -14,8 +14,9 @@ from mathutils import Matrix, Vector
 V = Vector
 FONT_SCRIPT = '/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf'
 FONT_SANS = '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
-# Windows has no GNU FreeFont: FreeSerif is a Times clone and FreeSans a Helvetica/Arial clone.
-WIN_FONTS = {'FreeSerifBoldItalic.ttf': 'timesbi.ttf', 'FreeSansBold.ttf': 'arialbd.ttf'}
+# Windows has no GNU FreeFont: the logo script is closest to Edwardian Script (the 'B' loop), FreeSans is an
+# Arial clone.
+WIN_FONTS = {'FreeSerifBoldItalic.ttf': 'ITCEDSCR.TTF', 'FreeSansBold.ttf': 'arialbd.ttf'}
 
 COLLECTION = None
 MATS = {}
@@ -87,13 +88,13 @@ def make_materials():
     material('decal_white', '#e8e8e8', rough=0.35)
     material('decal_red', '#c41818', rough=0.35, coat=0.6)
     material('plastic_black', '#111111', rough=0.55)
-    material('plastic_gloss', '#0d0d0d', rough=0.25)
+    material('plastic_gloss', '#0a0a0a', rough=0.12, coat=0.6)
     material('rubber', '#141414', rough=0.88, bump=0.25, bump_scale=900.0, spec=0.3)
-    material('tyre', '#121212', rough=0.82, bump=0.15, bump_scale=600.0, spec=0.3)
+    material('tyre', '#0b0b0b', rough=0.86, bump=0.15, bump_scale=600.0, spec=0.25)
     material('alloy_black', '#151515', rough=0.32, metal=0.6)
     material('steel', '#9a9a9a', rough=0.28, metal=1.0)
     material('steel_dark', '#4a4a4a', rough=0.35, metal=1.0)
-    material('chain', '#5a5a5a', rough=0.45, metal=1.0)
+    material('chain', '#8c8c8c', rough=0.38, metal=1.0)
     material('rotor', '#b8b8b8', rough=0.22, metal=1.0)
     material('leather', '#0e0e0e', rough=0.48, bump=0.12, bump_scale=1500.0)
     nylon_fabric('fabric', '#141516')
@@ -104,6 +105,7 @@ def make_materials():
     material('lens_white', '#fff4d6', rough=0.05, emit=6.0)
     material('lens_red', '#d01010', rough=0.1, emit=3.0)
     material('reflector_white', '#f0f0f0', rough=0.15)
+    material('reflector_amber', '#f0a018', rough=0.15)
     material('screen', '#1b2b33', rough=0.08, emit=0.6)
     material('screen_text', '#bfe8ff', rough=0.2, emit=4.0)
     material('led_green', '#30e060', rough=0.2, emit=5.0)
@@ -543,13 +545,15 @@ def font(path):
     return _fonts[path]
 
 
-def text(name, body, size, mat, bone, matrix, font_path=FONT_SCRIPT, extrude=0.0003):
+def text(name, body, size, mat, bone, matrix, font_path=FONT_SCRIPT, extrude=0.0003, bold=0.0):
     if DETAIL < 0.3:
         return None
     cu = bpy.data.curves.new(name, 'FONT')
     cu.body = body
     cu.font = font(font_path)
     cu.size = size
+    if bold:
+        cu.offset = bold * size              # thicken thin calligraphic strokes
     cu.extrude = extrude if DETAIL >= 1.0 else 0.0
     cu.resolution_u = n(6, 2)
     cu.align_x = 'CENTER'
@@ -594,31 +598,47 @@ def stripes(name, a, b, half_w, height, count, stripe_w, slant_deg, mat, bone, s
 
 
 def logo(name, center, read_dir, side_sign, offset_x, size, mat, bone):
-    """Round emblem followed by the 'One Bike' script, on a +/-X facing surface."""
+    """The One Bike badge as on the bike: a round emblem with a leaf swoosh standing in for the 'O',
+    followed by 'ne Bike' in a calligraphic script, on a +/-X facing surface."""
     m = side_matrix(center, read_dir, side_sign, offset_x)
-    ob = text(name, 'One Bike', size, mat, bone, m)
+    ob = text(name, 'ne Bike', size * 1.6, mat, bone, m, bold=0.03)    # the script has a small x-height
     if ob is None:
         return
     bpy.context.view_layer.update()
     w = ob.dimensions.x
     d = V(m.col[0][:3])
-    total = w + 1.25 * size
+    ring_r = 0.42 * size
+    total = w + 2 * ring_r + 0.05 * size
     ob.matrix_world = Matrix.Translation(d * (total / 2 - w / 2)) @ m
-    emblem_m = Matrix.Translation(d * -(total / 2 - 0.45 * size)) @ m
+    emblem_m = Matrix.Translation(d * -(total / 2 - ring_r) + V(m.col[1][:3]) * (0.06 * size)) @ m
     bm = bmesh.new()
     k = n(32, 12)
-    outer = [bm.verts.new(emblem_m @ V((0.45 * size * math.cos(2 * math.pi * i / k),
-                                         0.45 * size * math.sin(2 * math.pi * i / k), 0))) for i in range(k)]
-    inner = [bm.verts.new(emblem_m @ V((0.34 * size * math.cos(2 * math.pi * i / k),
-                                         0.34 * size * math.sin(2 * math.pi * i / k), 0))) for i in range(k)]
+    outer = [bm.verts.new(emblem_m @ V((ring_r * math.cos(2 * math.pi * i / k), ring_r * math.sin(2 * math.pi * i / k),
+                                         0))) for i in range(k)]
+    inner = [bm.verts.new(emblem_m @ V((0.78 * ring_r * math.cos(2 * math.pi * i / k),
+                                         0.78 * ring_r * math.sin(2 * math.pi * i / k), 0))) for i in range(k)]
     for i in range(k):
         j = (i + 1) % k
         bm.faces.new((outer[i], outer[j], inner[j], inner[i]))
+    # leaf swoosh off the lower left of the ring
+    leaf = []
+    for i in range(9):
+        t = i / 8
+        leaf.append((-ring_r * (0.6 + 1.1 * t), -ring_r * (0.55 + 0.25 * math.sin(math.pi * t)) + 0.2 * ring_r * t))
+    for i in range(8, -1, -1):
+        t = i / 8
+        leaf.append((-ring_r * (0.6 + 1.1 * t), -ring_r * (0.55 - 0.18 * math.sin(math.pi * t)) + 0.2 * ring_r * t))
+    lv = [bm.verts.new(emblem_m @ V((x, y, 0))) for x, y in leaf[:-1]]
+    try:
+        bmesh.ops.triangle_fill(bm, edges=[bm.edges.new((lv[i], lv[(i + 1) % len(lv)])) for i in range(len(lv))],
+                                use_beauty=True)
+    except Exception:
+        pass
     me = bpy.data.meshes.new(name + '_ring')
     bm.to_mesh(me)
     bm.free()
     link(bpy.data.objects.new(name + '_ring', me), bone, mat)
-    text(name + '_mark', 'ob', size * 0.42, mat, bone, emblem_m)
+    text(name + '_mark', 'S', size * 0.62, mat, bone, emblem_m, bold=0.03)
 
 
 # ------------------------------------------------------------------- scene

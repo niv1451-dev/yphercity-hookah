@@ -282,28 +282,37 @@ def frame():
                  end=P(0, sp_top), verts=32)
 
     # yellow lower housing behind and under the crank, black stripes on its sides
-    hous = lib.spline([(-0.040, 0.360), (-0.036, 0.290), (-0.080, 0.232), (-0.130, 0.206), (-0.178, 0.196),
-                       (-0.226, 0.226), (-0.262, 0.272), (-0.258, 0.316), (-0.215, 0.338), (-0.130, 0.372),
-                       (-0.070, 0.382)], 5)
+    hous = lib.spline([(-0.034, 0.385), (-0.030, 0.290), (-0.080, 0.232), (-0.130, 0.206), (-0.178, 0.196),
+                       (-0.226, 0.226), (-0.262, 0.272), (-0.258, 0.316), (-0.215, 0.345), (-0.140, 0.392),
+                       (-0.075, 0.410), (-0.034, 0.385)], 5)
     lib.plate('frame_lower_housing', hous[:-1], -0.034, 0.034, 'paint_yellow', 'chassis', bevel=0.007)
     for s in (1, -1):
-        lib.stripes('decal_housing_stripes%+d' % s, P(0, (-0.205, 0.272)), P(0, (-0.085, 0.272)), 0.0342, 0.085, 6,
+        # bold black diagonal stripes, as seen through the chain guard and below it
+        lib.stripes('decal_housing_stripes%+d' % s, P(0, (-0.205, 0.272)), P(0, (-0.055, 0.272)), 0.0342, 0.085, 8,
+                    0.011, -30, 'decal_black', 'chassis', sides=(s,))
+        lib.stripes('decal_housing_stripes_hi%+d' % s, P(0, (-0.150, 0.352)), P(0, (-0.050, 0.352)), 0.0342, 0.055, 5,
                     0.011, -30, 'decal_black', 'chassis', sides=(s,))
 
     # decals on the main tube: stripe block, logo with emblem, long run of thin stripes, "X4" on the down post
-    lib.stripes('decal_stripes_head', P(0, MT_A), P(0, HT_MID), 0.0285, 0.06, 5, 0.008, 28, 'decal_yellow',
-                'chassis', start=0.80, end=0.93)
-    lib.stripes('decal_stripes_row', P(0, MT_A), P(0, HT_MID), 0.0285, 0.05, 14, 0.0065, 28, 'decal_yellow',
-                'chassis', start=0.10, end=0.42, shift=-0.004)
+    lib.stripes('decal_stripes_head', P(0, MT_A), P(0, HT_MID), 0.0285, 0.058, 6, 0.0042, 24, 'decal_yellow',
+                'chassis', start=0.82, end=0.95, shift=0.004)
+    lib.stripes('decal_stripes_row', P(0, MT_A), P(0, HT_MID), 0.0285, 0.05, 10, 0.0045, 24, 'decal_yellow',
+                'chassis', start=0.06, end=0.40, shift=-0.006)
     d = (HT_MID[0] - MT_A[0], HT_MID[1] - MT_A[1])
     dl = math.hypot(*d)
     d = (d[0] / dl, d[1] / dl)
     for s in (1, -1):
         rd = d if s > 0 else (-d[0], -d[1])
         lib.logo('decal_logo_frame%+d' % s, along(MT_A, HT_MID, 0.62), rd, s, 0.0284, 0.034, 'decal_yellow', 'chassis')
-        lib.text('decal_x4%+d' % s, 'X4', 0.042, 'decal_yellow', 'chassis',
-                 lib.side_matrix((0.006, 0.535), (0.25, 0.97) if s > 0 else (-0.25, -0.97), s, 0.0262),
-                 font_path=lib.FONT_SANS)
+        x4 = lib.text('decal_x4%+d' % s, 'X4', 0.046, 'decal_yellow', 'chassis',
+                      lib.side_matrix((0.012, 0.548), (0.94, 0.34) if s > 0 else (-0.94, -0.34), s, 0.0264),
+                      font_path=lib.FONT_SANS)
+        if x4 is not None:
+            x4.data.shear = 0.35               # leaning, like the badge on the bike
+            x4.data.offset = 0.0012
+        for k, yy in enumerate((-0.022, 0.046)):  # slanted flashes either side of the badge
+            lib.stripes('decal_x4_flash%d%+d' % (k, s), P(0, (yy, 0.528 + 0.025 * k)), P(0, (yy + 0.006, 0.531 + 0.025 * k)),
+                        0.0264, 0.03, 1, 0.005, 28, 'decal_yellow', 'chassis', sides=(s,))
         lib.stripes('decal_downpost_stripes%+d' % s, P(0, (0.022, 0.50)), P(0, (-0.01, 0.40)), 0.0262, 0.012, 9, 0.004,
                     0, 'decal_yellow', 'chassis', sides=(s,), shift=0.018)
     return sp_top
@@ -361,8 +370,8 @@ def battery():
     lib.cylinder('battery_key', 0.009, 0, 'steel_dark', 'swingarm', start=p - axis * 0.002, end=p + axis * 0.004, verts=20)
     lib.box('battery_base', (BAT_W + 0.004, BAT_DEPTH + 0.004, 0.03), 'plastic_black', 'swingarm',
             matrix=tube_matrix(a3, b3, a3 + axis * 0.0), bevel=0.006)
-    lib.stripes('decal_battery_stripes', a3, b3, BAT_W / 2, BAT_DEPTH * 0.55, 15, 0.0085, -50, 'decal_yellow', 'swingarm',
-                start=0.47, end=0.89, shift=BAT_DEPTH * 0.19)
+    lib.stripes('decal_battery_stripes', a3, b3, BAT_W / 2, BAT_DEPTH * 0.6, 12, 0.0105, -58, 'decal_yellow', 'swingarm',
+                start=0.47, end=0.90, shift=BAT_DEPTH * 0.17)
     lib.stripes('decal_battery_stripes_low', a3, b3, BAT_W / 2, BAT_DEPTH * 0.45, 5, 0.0055, -50, 'decal_yellow',
                 'swingarm', start=0.07, end=0.15, shift=BAT_DEPTH * 0.22)
     d = (BAT_B[0] - BAT_A[0], BAT_B[1] - BAT_A[1])
@@ -445,8 +454,9 @@ def swingarm():
     a3, b3 = P(0, (-0.205, 0.335)), P(0, (-0.152, 0.505))
     lm = tube_matrix(a3, b3, (a3 + b3) / 2)
     lib.box('controller', (0.056, 0.042, (b3 - a3).length), 'plastic_black', 'swingarm', matrix=lm, bevel=0.005)
-    lib.box('controller_label', (0.001, 0.026, 0.05), 'decal_white', 'swingarm',
-            matrix=lm @ Matrix.Translation(V((0.0285, 0.0, 0.035))))
+    for k in range(4):                     # printed spec label: a few thin white lines on the black box
+        lib.box('controller_label%d' % k, (0.001, 0.003, 0.04 - 0.008 * (k % 2)), 'decal_white', 'swingarm',
+                matrix=lm @ Matrix.Translation(V((0.0285, -0.009 + 0.006 * k, 0.03))))
     lib.cylinder('chainstay_bridge', 0.012, 0, 'paint_yellow', 'swingarm', start=P(-0.08, (-0.40, 0.311)),
                  end=P(0.08, (-0.40, 0.311)), verts=20)
     # onebike.co.il on the right chainstay, black on yellow, followed by a short block of slanted stripes
@@ -985,23 +995,28 @@ def drivetrain():
     ring_outer = lib.gear_pts(52, 0.1052, 0.0075) if lib.DETAIL >= 0.8 else lib.circle_pts(0.106, lib.n(208, 16))
     lib.ring_prism('chainring', ring_outer, lib.circle_pts(0.088, len(ring_outer)), 0.091, 0.0945, 'steel_dark',
                    'crank', (0, BB[0], BB[1]))
+    # black chain guard: outer ring over the teeth and five thick spider arms; the yellow striped housing shows
+    # through the windows between the arms
+    nseg = lib.n(72, 20)
+    outline = [(BB[0] + 0.116 * math.cos(2 * math.pi * k / nseg), BB[1] + 0.116 * math.sin(2 * math.pi * k / nseg))
+               for k in range(nseg)]
+    holes = []
     for k in range(5):
-        m = rot_x(2 * math.pi * k / 5 + 0.3, (0.097, BB[0], BB[1])) @ Matrix.Translation(V((0, 0, 0.05)))
-        lib.box('spider%d' % k, (0.006, 0.016, 0.08), 'alloy_black', 'crank', matrix=m, bevel=0.002)
-    lib.ring_prism('chainguard', lib.circle_pts(0.113, lib.n(96, 16)), lib.circle_pts(0.028, lib.n(96, 16)), 0.1005, 0.104, 'plastic_gloss', 'crank',
-                   (0, BB[0], BB[1]), smooth=False)
-    bm = bmesh.new()
-    for k in range(9):
-        yy = -0.085 + k * 0.021
-        quad = []
-        for dy, dz in ((-0.006, -0.1), (0.006, -0.1), (0.006 + 0.03, -0.02), (-0.006 + 0.03, -0.02)):
-            y = yy + dy
-            lim = math.sqrt(max(0.108 ** 2 - y ** 2, 0.0))
-            z = max(dz, -lim) if dz < 0 else dz
-            quad.append(bm.verts.new((0.1045, BB[0] + y, BB[1] + z)))
-        if all((v.co.y - BB[0]) ** 2 + (v.co.z - BB[1]) ** 2 < 0.109 ** 2 for v in quad):
-            bm.faces.new(quad)
-    me_ob = lib.bm_to_obj('decal_chainguard', bm, 'decal_yellow', 'crank', smooth=False)
+        a = math.radians(72 * k + 21 + 36)          # windows between arms; one arm lines up with the crank
+        win = []
+        steps = 8
+        ai0, ai1 = a - math.radians(36 - 27), a + math.radians(36 - 27)
+        ao0, ao1 = a - math.radians(36 - 13), a + math.radians(36 - 13)
+        for j in range(steps + 1):
+            t = ai0 + (ai1 - ai0) * j / steps
+            win.append((BB[0] + 0.045 * math.cos(t), BB[1] + 0.045 * math.sin(t)))
+        for j in range(steps + 1):
+            t = ao1 - (ao1 - ao0) * j / steps
+            win.append((BB[0] + 0.0905 * math.cos(t), BB[1] + 0.0905 * math.sin(t)))
+        holes.append(win)
+    lib.plate('chainguard', outline, 0.098, 0.1045, 'plastic_gloss', 'crank', holes=holes, bevel=0.0018)
+    lib.cylinder('chainguard_hub', 0.03, 0, 'plastic_gloss', 'crank', start=P(0.1, BB), end=P(0.108, BB), verts=32,
+                 bevel=0.002)
 
     # crank arms and pedals
     for s, ang, bone in ((1, 21.0, 'pedal_r'), (-1, 201.0, 'pedal_l')):
@@ -1009,20 +1024,32 @@ def drivetrain():
         pe = (BB[0] + 0.17 * math.cos(a), BB[1] + 0.17 * math.sin(a))
         x = 0.117 if s > 0 else -0.072
         m = tube_matrix(P(x, BB), P(x, pe), P(x, along(BB, pe, 0.5)))
-        lib.box('crank_arm%+d' % s, (0.014, 0.026, 0.205), 'alloy_black', 'crank', matrix=m, bevel=0.006)
-        lib.cylinder('crank_cap%+d' % s, 0.013, 0, 'steel_dark', 'crank', start=P(x, BB), end=P(x + s * 0.009, BB), verts=24)
+        # forged arm: wide at the axle, tapering to the pedal eye
+        L = math.hypot(pe[0] - BB[0], pe[1] - BB[1])
+        arm = lib.spline([(-0.021, -0.012), (-0.019, L * 0.5), (-0.0145, L + 0.004), (0.0, L + 0.017), (0.0145, L + 0.004),
+                          (0.019, L * 0.5), (0.021, -0.012), (0.0, -0.022), (-0.021, -0.012)], 4)[:-1]
+        ob = lib.plate('crank_arm%+d' % s, arm, -0.0075, 0.0075, 'alloy_black', 'crank', bevel=0.005)
+        dvec = V((0, (pe[0] - BB[0]) / L, (pe[1] - BB[1]) / L))
+        ob.matrix_world = lib.basis(V((1, 0, 0)), V((0, dvec.z, -dvec.y)), dvec, P(x, BB))
+        lib.cylinder('crank_cap%+d' % s, 0.0105, 0, 'steel', 'crank', start=P(x, BB), end=P(x + s * 0.0095, BB), verts=24,
+                     bevel=0.0015)
         if s > 0:
             dd = (math.cos(a), math.sin(a))
-            lib.text('decal_prowheel', 'Prowheel', 0.012, 'decal_white', 'crank',
-                     lib.side_matrix(along(BB, pe, 0.5), dd, 1, x + 0.0072), font_path=lib.FONT_SANS)
+            lib.text('decal_prowheel', 'Prowheel', 0.0155, 'decal_white', 'crank',
+                     lib.side_matrix(along(BB, pe, 0.5), dd, 1, x + 0.0081), font_path=lib.FONT_SANS)
         px = x + s * 0.068
         lib.cylinder('pedal_spindle%+d' % s, 0.0065, 0, 'steel', bone, start=P(x, pe), end=P(px + s * 0.05, pe), verts=16)
-        lib.box('pedal%+d' % s, (0.095, 0.10, 0.02), 'plastic_black', bone, loc=(px, pe[0], pe[1]), bevel=0.006)
+        # pedal hangs turned on its spindle (as in the photo, platform facing outwards-back)
+        pm = Matrix.Translation(V((px, pe[0], pe[1]))) @ Matrix.Rotation(math.radians(-72), 4, 'X')
+        lib.box('pedal%+d' % s, (0.095, 0.10, 0.02), 'plastic_black', bone, matrix=pm, bevel=0.006)
+        for sy in (1, -1):                         # amber reflectors in the front and back edges
+            lib.box('pedal_reflector%+d' % s, (0.05, 0.003, 0.011), 'reflector_amber', bone,
+                    matrix=pm @ Matrix.Translation(V((0, sy * 0.0505, 0))), bevel=0.001)
         for dx in ((-0.035, 0.0, 0.035) if lib.DETAIL >= 0.6 else ()):
             for dy in (-0.04, 0.04):
                 for dz in (0.011, -0.011):
                     lib.cylinder('pedal_pin', 0.0022, 0.005, 'steel', bone, verts=8,
-                                 matrix=Matrix.Translation(V((px + dx, pe[0] + dy, pe[1] + dz))))
+                                 matrix=pm @ Matrix.Translation(V((dx, dy, dz))))
 
     # cassette
     cogs = [34, 28, 24, 20, 18, 16, 14]

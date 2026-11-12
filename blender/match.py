@@ -55,14 +55,16 @@ def photo_camera(cam_json, width):
 
 
 def photo_light():
-    """Bright overcast shade under a building: soft sky from the open side, weak bounce, no hard sun."""
-    scene = bpy.context.scene
-    bg = scene.world.node_tree.nodes.get('Background')
-    bg.inputs['Color'].default_value = (0.86, 0.88, 0.92, 1)
-    bg.inputs['Strength'].default_value = 0.9
+    """Bright shade under a building: an outdoor HDR environment for real reflections, a soft key from the open
+    side of the photo (camera side), studio lights turned down."""
+    render.hdri_world('courtyard', 0.45, 150)
     for name in ('key', 'fill', 'rim', 'top'):
-        bpy.data.objects[name].data.energy *= 0.5
-    lib.area_light('sky_open', (3.5, -1.5, 2.5), (0, 0, 0.5), 900, 4.0, color=(0.92, 0.95, 1.0))
+        bpy.data.objects[name].data.energy *= 0.2
+    lib.area_light('sky_open', (3.2, -1.2, 2.2), (0, 0, 0.5), 380, 4.0, color=(0.95, 0.97, 1.0))
+    try:
+        bpy.context.scene.view_settings.look = 'Medium High Contrast'
+    except TypeError:
+        pass
 
 
 def main():

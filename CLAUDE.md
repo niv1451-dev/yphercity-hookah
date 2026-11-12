@@ -11,12 +11,22 @@ The user writes in Hebrew: answer in Hebrew. They follow from a phone, so send r
 
 - `blender/` — the model, built entirely from Python (no hand-edited .blend):
   - `lib.py` — geometry helpers (sweep, pipe, lathe, box, cylinder, text decals, stripes, logo), materials, `DETAIL`.
-  - `build.py` — the bike. Side-view key points at the top (rear axle `RA`, front axle `FA`, bottom
-    bracket `BB`, swingarm pivot `PV`, shock nodes `SN`/`FM`, head tube `HB`, hinge `HG`, junction `N`,
-    `STEM_TOP`). One function per assembly: `wheel`, `frame`, `saddle`, `battery`, `swingarm`, `shock`,
-    `fender`, `rack`, `fork`, `cockpit` (+ `soft_bag`), `drivetrain`, `brakes_and_cables`.
+  - `build.py` — the bike. Side-view key points at the top, all measured on the photo through the solved
+    camera (rear axle `RA`, front axle `FA`, crank axle `BB`, swingarm pivot `PV`, shock eyes `SN`/`FM`,
+    hinge `HG`, main tube `MT_A`→`HT_MID`, seat tube `SEAT_A/B`, steering axis `HEAD` = 20° through `FA`
+    via `on_axis(z)`, crowns, `STEM_*`, `BAR`, `BAG`, `CUSHION`, `BAT_A/B`, `TYRE_R`, `GROUND_Z`).
+    One function per assembly: `wheel`, `frame` (main tube, hinge, down post, arch, seat tube, lower housing),
+    `saddle`, `battery`, `swingarm`, `shock`, `fender`, `rack` (+ `cushion`), `fork` (+ `crown`),
+    `cockpit` (+ `soft_bag`), `drivetrain`, `brakes_and_cables`.
   - `render.py` — Cycles previews. Views: `photo` (same angle as the reference photo), `side`, `front34`,
-    `rear34`, `closeup_*`. `OUTDOOR=1` renders on sunlit pavers instead of the studio backdrop.
+    `rear34`, `closeup_*`. `OUTDOOR=1` renders on pavers lit by Blender's bundled `courtyard.exr` HDRI.
+  - `match.py` — renders through the camera solved from the photo (`reference/camera.json`), front end
+    steered 31.6° like the photo, and writes overlays: `match_over.jpg` (model on the photo), `match_blend.jpg`,
+    `match_outline.jpg`, `match_side.jpg`. This is the 1:1 check: geometry is right when the model sits on the
+    photo. Add `photo` as 4th argument for HDRI lighting with the floor shadow.
+  - `photo_match/` — `yellow_mask.py` + `calib.py` solved the camera from the two yellow rim stripes;
+    `pick.py ruler|conv|convs` makes pixel-ruler crops and turns photo pixels into metres on a bike plane
+    (`convs` = the steered front plane). Measure from the photo this way before changing geometry.
   - `compare.py` — reference photo and a render side by side.
   - `export.py` — builds 5 LODs, rigs them to the vanilla Inductor e-bike skeleton and exports
     CodeWalker XML (`onebike.yft.xml`, `onebike_hi.yft.xml`, `onebike.ytd.xml` + DDS textures) with Sollumz.
@@ -50,10 +60,18 @@ FreeSans → Arial, DejaVu → Verdana). Sollumz there is the Blender extension 
 powershell -ExecutionPolicy Bypass -File setup_win.ps1     # once: Pillow into blender\.pylib
 $B = 'D:\Blender Foundation\Blender 5.2\blender.exe'
 $env:OUTDOOR = '1'; & $B -b --factory-startup --python-exit-code 1 --python win.py -- render.py <out_dir> 1000 32 photo
+& $B -b --factory-startup --python-exit-code 1 --python win.py -- match.py <out_dir> 32 0.6 [photo]
+$env:PYTHONPATH = '.pylib'; & '<blender>\5.2\python\bin\python.exe' photo_match\pick.py conv 0 1300,835
 & $B -b --factory-startup --python-exit-code 1 --python win.py -- compare.py <out_dir>\onebike_photo.jpg <out_dir>\compare.jpg
 ```
 
 ## Conventions and gotchas
+
+- Photo matching: every dimension comes from `reference/camera.json`. Its focal length is weakly determined
+  (a 28.5 mm solve fits almost as well as the 23.6 mm one), so do not re-solve it: the geometry was measured
+  with this file and would drift. Silhouette edges belong to the near or far face, not the centre plane: convert
+  a top edge seen from above on the far plane (x < 0) and a bottom edge on the near plane (x > 0). The tyre bottom
+  is the near side of the tread, which is why `TYRE_R` is 0.295 and the road (`GROUND_Z`) sits 3.8 cm up.
 
 - Axes follow GTA vehicles: +Y forward, +Z up, +X right; metres. Ground at z=0 in `build.py`;
   `export.py` moves the origin up 0.60 m (`ORIGIN_Z`).

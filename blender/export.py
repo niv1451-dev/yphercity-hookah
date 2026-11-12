@@ -53,6 +53,7 @@ SHADERS = {
     'lens_white': ('vehicle_lightsemissive', 'onebike_lens', 1),
     'lens_red': ('vehicle_lightsemissive', 'onebike_red', 3),
     'reflector_white': ('vehicle_mesh', 'onebike_refl', None),
+    'reflector_amber': ('vehicle_paint2', 'onebike_white', None),
     'screen': ('vehicle_mesh', 'onebike_screen', None),
     'screen_text': ('vehicle_mesh', 'onebike_screentext', None),
     'led_green': ('vehicle_mesh', 'onebike_green', None),
