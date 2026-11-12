@@ -274,6 +274,37 @@ def main():
     lib.make_materials()
     sz.enable()
     mod = lambda name: importlib.import_module(sz.PKG + '.' + name)
+    # Sollumz writes every physics child with a minimum breaking impulse of 0; GTA's own bikes use 100 on every
+    # child. (This alone did not fix the hanging wheels; see the bone-transform patch below.)
+    yftexport = mod('yft.yftexport')
+    if not getattr(yftexport, '_onebike_patched', False):
+        _phys_child = yftexport.PhysChild
+
+        def phys_child_100(*args, **kwargs):
+            kwargs['min_breaking_impulse'] = 100.0
+            return _phys_child(*args, **kwargs)
+
+        yftexport.PhysChild = phys_child_100
+
+        # Sollumz also fills the fragment's bone-transform set (CW XML <BoneTransforms>) with every bone's full
+        # model-space matrix. GTA's own bikes (powersurge, inductor, both LODs) keep it all identity. With the full
+        # matrices the game added the wheel offset twice: in game both wheels hung about twice as far out and low,
+        # and the bike stood 0.7 m in the air. Physics is built from the real matrices before this point, so only
+        # the stored set changes.
+        # 2026-11-13: found by comparing with powersurge.yft; NOT yet confirmed in game.
+        _core = yftexport.create_fragment_asset_core
+
+        def core_identity_bones(*args, **kwargs):
+            from mathutils import Matrix
+            frag, hi_frag = _core(*args, **kwargs)
+            for f in (frag, hi_frag):
+                ms = getattr(f, 'matrix_set', None) if f is not None else None
+                if ms is not None and getattr(ms, 'matrices', None):
+                    ms.matrices = [Matrix(((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0))) for _ in ms.matrices]
+            return frag, hi_frag
+
+        yftexport.create_fragment_asset_core = core_identity_bones
+        yftexport._onebike_patched = True
     SollumType = mod('sollumz_properties').SollumType
     LODLevel = mod('sollumz_properties').LODLevel
     bh = mod('tools.blenderhelper')
@@ -323,11 +354,13 @@ def main():
         for nme in names:
             arm.bones[bone].bone_properties.flags.add().name = nme
 
-    for bone in ('wheel_lf', 'wheel_lr', 'crank', 'pedal_l', 'pedal_r', 'swingarm'):
-        flags(bone, ('RotX',))
-    for bone in ('handlebars', 'forks_u'):
-        flags(bone, ('RotZ',))
-    flags('forks_l', ('TransZ',))
+    # bone degrees of freedom exactly as in GTA's own bikes (Powersurge, Inductor): every bone may rotate on all
+    # axes, the chassis and the wheels may also move on all axes. With single-axis flags the game placed the
+    # wheels once more at their own offset, so they hung next to the bike.
+    for name, _parent, _m in bones:
+        flags(name, ('RotX', 'RotY', 'RotZ'))
+    for bone in ('chassis', 'wheel_lf', 'wheel_lr'):
+        flags(bone, ('TransX', 'TransY', 'TransZ'))
     # physics groups as in GTA's own bikes (Powersurge / Inductor): chassis, each wheel, the seat and chassis_dummy
     for bone in ('chassis', 'wheel_lf', 'wheel_lr', 'seat_f', 'chassis_dummy'):
         arm.bones[bone].sollumz_use_physics = True

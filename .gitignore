@@ -5,3 +5,4 @@ blender/display.png
 blender/__pycache__/
 out/
 *.blend1
+gametest/shots_*/

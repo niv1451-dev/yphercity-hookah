@@ -85,5 +85,14 @@ $env:PYTHONPATH = '.pylib'; & '<blender>\5.2\python\bin\python.exe' photo_match\
 - `import bpy` must come before `import bmesh`. `mesh.materials.clear()` resets every face to slot 0.
   Sollumz expects UV layers `UVMap 0`/`UVMap 1` and colour attribute `Color 1`; `create_shader()` takes `name.sps`.
 - Installing Sollumz/szio (third-party code) may be blocked by the permission classifier until the user approves it.
-- The final step to binary `.yft`/`.ytd` needs Windows (CodeWalker "Import XML" or Sollumz with PyMateria);
-  it cannot be done here. Nothing has been tested inside GTA yet.
+- The final step to binary `.yft`/`.ytd` needs Windows. On the user's PC: export without `--factory-startup`
+  (Sollumz extension), then `powershell -ExecutionPolicy Bypass -File cw_convert.ps1 <gta_dir>` makes the binaries
+  with CodeWalker.Core (`D:\CodeWalker\CodeWalker30_dev46`). Use these, not Sollumz's own binary output.
+- In game (home FiveM server, resource `[selected_cars]\cyphercity-onebike`): `gametest/` holds the photo test
+  (`run_shots.ps1` restarts the server and screenshots each view from `zz_onebike_test.lua`, which must be listed
+  in the server's fxmanifest while testing) and read-only CodeWalker inspectors that compare our `.yft` with
+  vanilla `powersurge.yft` / `inductor.yft`. Before any restart, check / write `D:\FiveMServer\server_test.lock`
+  (another session tests there too).
+- Wheels in game: `export.py` patches Sollumz twice. Physics children get min breaking impulse 100. The
+  fragment bone-transform set is written as identity like vanilla (Sollumz writes model-space matrices, which
+  made the game draw and place the wheels at about twice their offset). The second patch is not yet confirmed in game.
