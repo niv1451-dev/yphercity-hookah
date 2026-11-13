@@ -159,8 +159,72 @@ CreateThread(function()
     end
     print(('EATTEST INFO rider in bike=%s'):format(tostring(IsPedInVehicle(ped, veh, false))))
     measure('onebike_ridden', veh)
+    -- מדידת מיקום הרגליים של הרוכב מול הפדלים (ביחס לאופניים), כדי להזיז את הפדלים אל הרגליים
+    local function rel(p) local l = GetOffsetFromEntityGivenWorldCoords(veh, p.x, p.y, p.z); return f3(l) end
+    for _, b in ipairs({ { 'foot_l', 14201 }, { 'foot_r', 52301 }, { 'toe_l', 2108 }, { 'toe_r', 20781 },
+                         { 'pelvis', 11816 } }) do
+        print(('EATTEST INFO rider %s=%s'):format(b[1], rel(GetPedBoneCoords(ped, b[2], 0.0, 0.0, 0.0))))
+    end
+    for _, name in ipairs({ 'pedal_l', 'pedal_r', 'crank', 'seat_f' }) do
+        local idx = GetEntityBoneIndexByName(veh, name)
+        if idx ~= -1 then print(('EATTEST INFO bike %s=%s'):format(name, rel(GetWorldPositionOfEntityBone(veh, idx)))) end
+    end
+    -- בדיקת הקראנק המסתובב: זווית כף הרגל הימנית מול הזווית שהפדל הימני קיבל בפועל
+    local function crank_check(tag)
+        local cb = GetEntityBoneIndexByName(veh, 'crank')
+        local cw = GetWorldPositionOfEntityBone(veh, cb)
+        local c = GetOffsetFromEntityGivenWorldCoords(veh, cw.x, cw.y, cw.z)
+        local t = GetPedBoneCoords(ped, 20781, 0.0, 0.0, 0.0)
+        local tl = GetOffsetFromEntityGivenWorldCoords(veh, t.x, t.y, t.z)
+        local toe = math.deg(math.atan(tl.z - c.z, tl.y - c.y))
+        local pedal = 'אין'
+        local pb = GetEntityBoneIndexByName(veh, 'pedal_r')
+        if pb ~= -1 then
+            local p = GetWorldPositionOfEntityBone(veh, pb)
+            local pl = GetOffsetFromEntityGivenWorldCoords(veh, p.x, p.y, p.z)
+            pedal = ('%.0f'):format(math.deg(math.atan(pl.z - c.z, pl.y - c.y)))
+        end
+        print(('EATTEST INFO crank %s toe_deg=%.0f pedal_r_deg=%s'):format(tag, toe, pedal))
+    end
+    crank_check('stopped')
     view(veh, cam, 'rider', 2.7, -0.8, 0.55, 0.0, 0.0, 0.45, 50.0)
     view(veh, cam, 'rider_front34', 2.2, 2.4, 0.7, 0.0, 0.1, 0.4, 48.0)
+    view(veh, cam, 'rider_feet', 1.3, 0.0, -0.05, 0.0, -0.1, -0.15, 40.0)
+
+    -- מהירות: ההערכה של המשחק למהירות המרבית, ונסיעת האצה של 8 שניות
+    print(('EATTEST INFO speed estimated_max_kmh=%.1f'):format(GetVehicleEstimatedMaxSpeed(veh) * 3.6))
+    RenderScriptCams(false, false, 0, true, true)
+    TaskVehicleTempAction(ped, veh, 23, 8000)
+    local top, t1, shot = 0.0, GetGameTimer(), false
+    while GetGameTimer() - t1 < 8000 do
+        local s = GetEntitySpeed(veh) * 3.6
+        if s > top then top = s end
+        if GetGameTimer() - t1 > 600 and GetGameTimer() - t1 < 2000 and (GetGameTimer() - t1) % 300 < 100 then
+            crank_check('moving')
+        end
+        if not shot and GetGameTimer() - t1 > 1500 then
+            -- צילום תוך כדי נסיעה ומיקום הרגליים בזמן תנועה
+            shot = true
+            for _, b in ipairs({ { 'moving_toe_l', 2108 }, { 'moving_toe_r', 20781 }, { 'moving_foot_l', 14201 },
+                                 { 'moving_foot_r', 52301 } }) do
+                print(('EATTEST INFO rider %s=%s'):format(b[1], rel(GetPedBoneCoords(ped, b[2], 0.0, 0.0, 0.0))))
+            end
+            local mcam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+            AttachCamToEntity(mcam, veh, 2.4, 0.3, 0.3, true)
+            PointCamAtEntity(mcam, veh, 0.0, 0.0, 0.2, true)
+            SetCamFov(mcam, 45.0)
+            RenderScriptCams(true, false, 0, true, true)
+            Wait(300)
+            print('EATTEST SHOT riding 1')
+            Wait(700)
+            RenderScriptCams(false, false, 0, true, true)
+            DestroyCam(mcam, false)
+        end
+        Wait(100)
+    end
+    print(('EATTEST INFO speed run_8s_max_kmh=%.1f'):format(top))
+    TaskVehicleTempAction(ped, veh, 6, 4000)
+    Wait(4000)
 
     RenderScriptCams(false, false, 0, true, true)
     DestroyCam(cam, false)

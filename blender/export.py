@@ -259,7 +259,6 @@ WHEEL_DIFFUSE = {
 # ברק לחלקי הגלגל: "צבע" נתן ברק חזק שהפך את הפס הצהוב לחיוור, אז בגלגל הוא סאטן
 WHEEL_SURFACE = {'paint': 'satin'}
 
-
 def make_shader_materials(tex_dir, sm, shader_mats_mod):
     """Sollumz materials for every lib material, plus a wheel_mat(libname) maker for vehicle_tire copies."""
     mats = {}
@@ -313,6 +312,11 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
 def main():
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
+    # קראנק במצב המנוחה של רוקסטאר: הזרוע הימנית ישר למעלה והפדלים ישרים. בישיבת אופניים המשחק מסובב את עצם
+    # הקראנק והפדלים יחד עם הרגליים, בהנחה שזה מצב המנוחה (נמדד במשחק ב-13.11.2026). בזווית של התמונה (21) הכל
+    # יצא מוזז בכ-70 מעלות מהרגליים
+    build.CRANK_DEG = 90.0
+    build.PEDAL_TILT_DEG = 0.0
     tex_dir = os.path.join(out, 'onebike')
     info = textures.generate(tex_dir)
     textures.write_ytd_xml(info, os.path.join(out, 'onebike.ytd.xml'))

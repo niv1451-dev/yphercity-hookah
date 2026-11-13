@@ -16,6 +16,9 @@ RA = (-0.648, 0.33)
 FA = (0.648, 0.33)
 BB = (-0.083, 0.335)
 CRANK_DEG = 21.0                        # right crank angle in the photo (forward and up)
+# הטיית הפדלים כמו בתמונה. בייצוא למשחק: קראנק במצב המנוחה של רוקסטאר (זרוע ימנית ישר למעלה, 90) ופדלים ישרים (0),
+# כי המשחק מסובב את הקראנק והפדלים יחד עם הרגליים של הרוכב מהמצב הזה
+PEDAL_TILT_DEG = -72.0
 PV = (-0.236, 0.305)
 SN = (-0.144, 0.525)
 FM = (-0.040, 0.604)
@@ -715,8 +718,9 @@ def fork():
                  end=P(0, add(hl, f2, 0.029)), verts=40)
     # front fender: deep glossy channel over the top and down the back of the tyre, pointed tail, mounted under
     # the lower crown
-    fender('fender_front', FA, 0.326, 84, 172, 'forks_l', hw=0.062, sag=0.034, beak=True, r_end=0.372)
-    top = (FA[0] + 0.006, FA[1] + 0.327)
+    # 13.11.2026: הכנף קרובה יותר לצמיג (כ-2 ס"מ למעלה, כ-3.5 ס"מ בזנב). במשחק נראה רווח גדול מדי מהצמיג
+    fender('fender_front', FA, 0.316, 84, 172, 'forks_l', hw=0.062, sag=0.034, beak=True, r_end=0.332)
+    top = (FA[0] + 0.006, FA[1] + 0.317)
     lib.box('fender_front_mount', (0.05, 0.05, 0.026), 'plastic_black', 'forks_l', loc=P(0, add(top, (0.0, 0.01))),
             bevel=0.005)
     a3, b3 = P(0, add(top, (-0.01, 0.02))), P(0, add(on_axis(CROWN_LO_Z - 0.018), (0.012, 0.0)))
@@ -1016,7 +1020,7 @@ def drivetrain():
                for k in range(nseg)]
     holes = []
     for k in range(5):
-        a = math.radians(72 * k + 21 + 36)          # windows between arms; one arm lines up with the crank
+        a = math.radians(72 * k + CRANK_DEG + 36)   # windows between arms; one arm lines up with the crank
         win = []
         steps = 8
         ai0, ai1 = a - math.radians(36 - 27), a + math.radians(36 - 27)
@@ -1054,7 +1058,7 @@ def drivetrain():
         px = x + s * 0.068
         lib.cylinder('pedal_spindle%+d' % s, 0.0065, 0, 'steel', bone, start=P(x, pe), end=P(px + s * 0.05, pe), verts=16)
         # pedal hangs turned on its spindle (as in the photo, platform facing outwards-back)
-        pm = Matrix.Translation(V((px, pe[0], pe[1]))) @ Matrix.Rotation(math.radians(-72), 4, 'X')
+        pm = Matrix.Translation(V((px, pe[0], pe[1]))) @ Matrix.Rotation(math.radians(PEDAL_TILT_DEG), 4, 'X')
         lib.box('pedal%+d' % s, (0.095, 0.10, 0.02), 'plastic_black', bone, matrix=pm, bevel=0.006)
         for sy in (1, -1):                         # amber reflectors in the front and back edges
             lib.box('pedal_reflector%+d' % s, (0.05, 0.003, 0.011), 'reflector_amber', bone,

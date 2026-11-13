@@ -4,8 +4,8 @@ lua54 'yes'
 
 name 'cyphercity-onebike'
 author 'CypherCity'
-description 'One Bike electric fat-tire bike for CypherCity: throttle e-bike (no pedalling), one rider'
-version '1.2.0'
+description 'One Bike electric fat-tire bike for CypherCity: throttle e-bike, feet on turning pedals, one rider'
+version '1.3.0'
 
 -- The model itself (onebike.yft, onebike_hi.yft, onebike.ytd) goes in stream/,
 -- which FiveM streams automatically. See README.md and docs/MODEL_BRIEF.md.
