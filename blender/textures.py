@@ -143,6 +143,7 @@ def display_wide():
 TEXTURES = {
     'onebike_display': display_wide,
     'onebike_white': lambda: solid((255, 255, 255)),
+    'onebike_yellow': lambda: solid((242, 194, 0)),   # rim stripes: wheels use vehicle_tire, which has no paint colour
     'onebike_spec': lambda: solid((190, 190, 190)),
     # specular maps per surface kind (R intensity, G glossiness, B fresnel): rubber and fabric must stay matte in game
     'onebike_spec_matte': lambda: solid((14, 26, 40)),

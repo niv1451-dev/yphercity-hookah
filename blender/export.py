@@ -39,6 +39,7 @@ SHADERS = {
     'plastic_gloss': ('vehicle_mesh', 'onebike_gloss', None),
     'rubber': ('vehicle_mesh', 'onebike_rubber', None),
     'tyre': ('vehicle_tire', 'onebike_tyre', None),
+    'tyre_side': ('vehicle_tire', 'onebike_tyre', None),   # שורות הצד של הסוליה, חלק נפרד מתחת לגבול הנקודות
     'alloy_black': ('vehicle_mesh', 'onebike_alloy', None),
     'steel': ('vehicle_mesh', 'onebike_steel', None),
     'steel_dark': ('vehicle_mesh', 'onebike_steeldark', None),
@@ -82,7 +83,7 @@ SURFACE = {
     'paint_black': 'paint', 'decal_black': 'paint', 'paint_yellow': 'paint', 'decal_yellow': 'paint',
     'reflector_amber': 'paint', 'decal_white': 'satin', 'decal_red': 'satin',
     'plastic_black': 'satin', 'plastic_gloss': 'gloss', 'piping': 'gloss', 'zipper': 'satin', 'alloy_black': 'satin',
-    'rubber': 'matte', 'tyre': 'matte', 'leather': 'satin', 'fabric': 'matte', 'mesh_fabric': 'matte',
+    'rubber': 'matte', 'tyre': 'matte', 'tyre_side': 'matte', 'leather': 'satin', 'fabric': 'matte', 'mesh_fabric': 'matte',
     'webbing': 'matte', 'button_rubber': 'matte',
     'steel': 'metal', 'steel_dark': 'metal', 'chain': 'metal', 'rotor': 'metal',
     'lens_white': 'light', 'lens_red': 'light', 'reflector_white': 'gloss', 'screen': 'gloss', 'screen_text': 'gloss',
@@ -186,12 +187,14 @@ def bake_lod(coll, lod_name, mats_order, bone_mats):
             bpy.data.meshes.remove(me)
         sharp = [e for e in bm.edges if not e.is_manifold or e.calc_face_angle(math.pi) > math.radians(40)]
         bmesh.ops.split_edges(bm, edges=sharp)
-        bmesh.ops.transform(bm, matrix=bone_mats[bone].inverted(), verts=bm.verts)
+        # רק הגלגלים נשמרים יחסית לעצם שלהם (כמו אצל רוקסטאר). שאר הגוף נשמר בקואורדינטות הכלליות של האופניים,
+        # כי הוא יוצא כצורה מעוותת (skinned) שכל נקודה בה קשורה לעצם שלה במשקל מלא
+        world = bone_mats[bone] if bone in WHEEL_BONES else Matrix.Identity(4)
+        bmesh.ops.transform(bm, matrix=world.inverted(), verts=bm.verts)
         src_uv = bm.loops.layers.uv.get('UVMap')  # authored UVs (the display screen)
         uv = bm.loops.layers.uv.new('UVMap 0')
         uv2 = bm.loops.layers.uv.new('UVMap 1')
         col = bm.loops.layers.color.new('Color 1')
-        world = bone_mats[bone]
         for f in bm.faces:
             f.smooth = True
             nrm = (world.to_3x3() @ f.normal)
@@ -199,9 +202,16 @@ def bake_lod(coll, lod_name, mats_order, bone_mats):
             light = SHADERS[mats_order[f.material_index]][2]
             authored = src_uv is not None and mats_order[f.material_index] == 'screen_display'
             for loop in f.loops:
-                p = world @ loop.vert.co
-                a, b = [(p.y, p.z), (p.x, p.z), (p.x, p.y)][ax]
-                loop[uv].uv = loop[src_uv].uv if authored else (a * 4.0, b * 4.0)
+                if bone in WHEEL_BONES:
+                    # בגלגלים: מיפוי יחסית למרכז הגלגל, בתחום 0 עד 1 כמו אצל רוקסטאר. מיפוי לפי המיקום הכללי
+                    # נתן מספרים עד 3.8, וחומר הצמיג של המשחק משך נקודות של הצמיג למרכז (נראה כמו קוצים)
+                    p = loop.vert.co
+                    a, b = [(p.y, p.z), (p.x, p.z), (p.x, p.y)][ax]
+                    loop[uv].uv = (0.5 + a * 1.6, 0.5 + b * 1.6)
+                else:
+                    p = world @ loop.vert.co
+                    a, b = [(p.y, p.z), (p.x, p.z), (p.x, p.y)][ax]
+                    loop[uv].uv = loop[src_uv].uv if authored else (a * 4.0, b * 4.0)
                 loop[uv2].uv = loop[uv].uv
                 loop[col] = (1.0, 1.0, 1.0, (light / 255.0) if light is not None else 1.0)
         if src_uv is not None:
@@ -229,7 +239,18 @@ def trim_materials(mesh, shader_mats):
 
 # --------------------------------------------------------------- sollumz
 
+# GTA's own bikes draw every part of a wheel (rim, hub, tyre) with vehicle_tire; the game draws a bike wheel
+# through that shader's wheel matrix. Our wheels had the rim, stripes and disc on vehicle_mesh / vehicle_paint2,
+# and in game those parts were missing while the tyre hung far from the bike. Wheel parts therefore get a
+# vehicle_tire copy of their material; paint colours become plain textures because vehicle_tire has no paint slot.
+WHEEL_DIFFUSE = {
+    'paint_yellow': 'onebike_yellow', 'decal_yellow': 'onebike_yellow', 'reflector_amber': 'onebike_yellow',
+    'paint_black': 'onebike_gloss', 'decal_black': 'onebike_gloss',
+}
+
+
 def make_shader_materials(tex_dir, sm, shader_mats_mod):
+    """Sollumz materials for every lib material, plus a wheel_mat(libname) maker for vehicle_tire copies."""
     mats = {}
     images = {}
 
@@ -240,9 +261,9 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
             images[name] = img
         return images[name]
 
-    for libname, (shader, diffuse, _light) in SHADERS.items():
+    def make(libname, shader, diffuse, mat_name):
         mat = shader_mats_mod.create_shader(shader + '.sps')
-        mat.name = 'onebike_' + libname
+        mat.name = mat_name
         spec_tex, spec_mult, spec_falloff, spec_fresnel = SPEC[SURFACE[libname]]
         for node in mat.node_tree.nodes:
             if node.bl_idname == 'ShaderNodeTexImage':
@@ -259,8 +280,22 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
                          'specularFresnel': spec_fresnel, 'reflectivePower': 0.45}.get(node.name)
                 if value is not None:
                     node.set_float(value)
-        mats[libname] = mat
-    return mats
+        return mat
+
+    for libname, (shader, diffuse, _light) in SHADERS.items():
+        mats[libname] = make(libname, shader, diffuse, 'onebike_' + libname)
+
+    wheel_mats = {}
+
+    def wheel_mat(libname):
+        if SHADERS[libname][0] == 'vehicle_tire':
+            return mats[libname]
+        if libname not in wheel_mats:
+            diffuse = WHEEL_DIFFUSE.get(libname, SHADERS[libname][1])
+            wheel_mats[libname] = make(libname, 'vehicle_tire', diffuse, 'onebike_wheel_' + libname)
+        return wheel_mats[libname]
+
+    return mats, wheel_mat
 
 
 def main():
@@ -304,6 +339,22 @@ def main():
             return frag, hi_frag
 
         yftexport.create_fragment_asset_core = core_identity_bones
+
+        # תיקון הגלגלים (2026-11-13): Sollumz מחשב את טבלת המיקום של כל חלק פיזיקה (Matrix ו-Matrices,
+        # "בלי הזזה") רק לקובץ הרגיל, ולא לקובץ המפורט (_hi) שהמשחק מצייר כשהמצלמה קרובה. בלי הטבלה
+        # הגלגלים צוירו רחוק מהאופניים. בקבצים של רוקסטאר הטבלה קיימת בשניהם, אז מעתיקים אותה לחלקים המפורטים
+        # (הם באותו סדר בדיוק) לפני שהחלקים ממוינים.
+        _sort = yftexport.sort_frag_phys_children_and_collisions_inplace
+
+        def sort_with_hi_matrices(children, hi_children, *args, **kwargs):
+            if hi_children:
+                for child, hi_child in zip(children, hi_children):
+                    if child.drawable is not None and hi_child.drawable is not None:
+                        hi_child.drawable.frag_bound_matrix = child.drawable.frag_bound_matrix
+                        hi_child.drawable.frag_extra_bound_matrices = list(child.drawable.frag_extra_bound_matrices or [])
+            return _sort(children, hi_children, *args, **kwargs)
+
+        yftexport.sort_frag_phys_children_and_collisions_inplace = sort_with_hi_matrices
         yftexport._onebike_patched = True
     SollumType = mod('sollumz_properties').SollumType
     LODLevel = mod('sollumz_properties').LODLevel
@@ -328,7 +379,13 @@ def main():
         bpy.data.collections.remove(coll)
         print('baked', lod_name, {k: len(v.polygons) for k, v in lod_meshes[lod_name].items()}, flush=True)
 
-    shader_mats = make_shader_materials(tex_dir, None, shader_mats_mod)
+    shader_mats, wheel_mat = make_shader_materials(tex_dir, None, shader_mats_mod)
+
+    def mats_for(bone, mesh):
+        if bone in WHEEL_BONES:
+            used = {mesh.materials[p.material_index].name for p in mesh.polygons}
+            return {k: wheel_mat(k) for k in used}
+        return {k: shader_mats[k] for k in SHADERS}
 
     # fragment + skeleton
     scene_coll = bpy.data.collections.new('onebike_export')
@@ -368,9 +425,31 @@ def main():
     drawable = bh.create_empty_object(SollumType.DRAWABLE, 'onebike.drawable')
     drawable.parent = frag
 
+    # גוף "מעוות" כמו אצל רוקסטאר (תיקון הגלגלים, 2026-11-13). באופניים של המשחק (Inductor, Powersurge) כל
+    # הגוף הוא צורה מעוותת אחת (skinned): כל נקודה קשורה לעצם שלה, והצורות שמורות בקואורדינטות הכלליות. כשהגוף
+    # היה חלקים קשיחים, המשחק צייר את הגלגלים בכפל המרחק. בניסוי שבו רק chassis היה מעוות, הגלגלים חזרו למקום
+    # אבל שאר החלקים זזו, ולכן עכשיו כל חלק שאינו גלגל מקבל משקל מלא לעצם שלו. הגלגלים נשארים חלקים נפרדים.
+    SKINNED_BONES = tuple(b for b in lod_meshes['HIGH'].keys() if b not in WHEEL_BONES)
+
+    def full_weight(me, bone):
+        # בבלנדר 5 שמות קבוצות הנקודות שמורים בתוך כל צורה בנפרד, אז מוסיפים את השם לכל רמת פירוט
+        tmp = bpy.data.objects.new('_vg_tmp', me)
+        if bone not in tmp.vertex_groups:
+            tmp.vertex_groups.new(name=bone)
+        bpy.data.objects.remove(tmp)
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        dl = bm.verts.layers.deform.verify()
+        for v in bm.verts:
+            v[dl][0] = 1.0
+        bm.to_mesh(me)
+        bm.free()
+
     for bone in sorted(lod_meshes['HIGH'].keys()):
         hi_mesh = lod_meshes['HIGH'][bone]
-        trim_materials(hi_mesh, {k: shader_mats[k] for k in SHADERS})
+        trim_materials(hi_mesh, mats_for(bone, hi_mesh))
+        if bone in SKINNED_BONES:
+            full_weight(hi_mesh, bone)
         ob = bpy.data.objects.new(bone, hi_mesh)
         scene_coll.objects.link(ob)
         dh.convert_obj_to_model(ob)
@@ -379,12 +458,16 @@ def main():
             me = lod_meshes[lod_name].get(bone)
             if me is None:
                 continue
-            trim_materials(me, {k: shader_mats[k] for k in SHADERS})
+            trim_materials(me, mats_for(bone, me))
+            if bone in SKINNED_BONES:
+                full_weight(me, bone)
             ob.sz_lods.get_lod(level).mesh = me
         ob.parent = drawable
-        bh.add_child_of_bone_constraint(ob, frag, bone)
         if bone in WHEEL_BONES:
+            # הגלגל: צורה קשיחה יחסית לעצם שלו, וחלק פיזיקה נפרד
+            bh.add_child_of_bone_constraint(ob, frag, bone)
             ob.sollumz_is_physics_child_mesh = True
+        # שאר החלקים: בלי קשר מיקום לעצם; הקשר הוא דרך קבוצת הנקודות (המשקל), והצורה כבר בקואורדינטות הכלליות
 
     # collisions
     comp = bh.create_empty_object(SollumType.BOUND_COMPOSITE, 'onebike.col')

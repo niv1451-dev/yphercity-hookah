@@ -60,4 +60,4 @@ while ((Get-Date) -lt $start.AddSeconds($TimeoutSec)) {
 }
 "RESULT: $result  shots: $((Get-ChildItem -LiteralPath $Out -Filter *.png).Count)  ($([int]((Get-Date) - $start).TotalSeconds) s)"
 $log = Get-ChildItem -LiteralPath $logDir -Filter 'CitizenFX_log_*' | Sort-Object LastWriteTime | Select-Object -Last 1
-(Read-Shared $log.FullName) -split "`n" | Select-String -Pattern 'EATTEST (INFO|FAIL)|SCRIPT ERROR|onebike.*(error|fail)' | Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+(Read-Shared $log.FullName) -split "`n" | Select-String -Pattern 'EATTEST (INFO|FAIL)|SCRIPT ERROR|onebike.*(error|fail)' | Select-Object -Last 80 | ForEach-Object { $_.Line.Trim() }

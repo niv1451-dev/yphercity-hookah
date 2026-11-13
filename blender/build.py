@@ -101,7 +101,11 @@ def wheel(prefix, c, bone, rear):
         rows = rows[:4]
     if lib.DETAIL < 0.2:
         rows = []
-    for x, r, wx, wt, shift, tilt in rows:
+    # שורות האמצע וחומר "tyre", שורות הצד בחומר זהה נפרד: במשחק כל חומר הוא חלק נפרד, וחלק אחד עם כל
+    # הבלוקים עבר את גבול הנקודות של המשחק (כ-65 אלף) ונראה כמו קוצים
+    side_bm = bmesh.new()
+    for i, (x, r, wx, wt, shift, tilt) in enumerate(rows):
+        target = bm if i < 4 else side_bm
         h = 0.0058
         for k in range(count):
             th = 2 * math.pi * (k + shift) / count
@@ -110,10 +114,15 @@ def wheel(prefix, c, bone, rear):
                  @ Matrix.Translation(V((x + jog, 0, r))) @ Matrix.Rotation(math.radians(tilt), 4, 'Y')
                  @ Matrix.Translation(V((0, 0, h / 2 - 0.001)))
                  @ Matrix.Diagonal((wx, wt, h, 1.0)))
-            bmesh.ops.create_cube(bm, size=1.0, matrix=m)
+            bmesh.ops.create_cube(target, size=1.0, matrix=m)
     if rows:
         knobs = lib.bm_to_obj(prefix + '_tread', bm, 'tyre', bone)
         lib.add_bevel(knobs, 0.0016, 2, 30.0)
+    if len(rows) > 4:
+        side = lib.bm_to_obj(prefix + '_tread_side', side_bm, 'tyre_side', bone)
+        lib.add_bevel(side, 0.0016, 2, 30.0)
+    else:
+        side_bm.free()
 
     rim = [(0.042, 0.2145), (0.0455, 0.2165), (0.0455, 0.205), (0.041, 0.197), (0.041, 0.186),
            (-0.041, 0.186), (-0.041, 0.197), (-0.0455, 0.205), (-0.0455, 0.2165), (-0.042, 0.2145),

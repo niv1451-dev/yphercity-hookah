@@ -95,6 +95,8 @@ def make_materials():
     material('plastic_gloss', '#0a0a0a', rough=0.12, coat=0.6)
     material('rubber', '#141414', rough=0.88, bump=0.25, bump_scale=900.0, spec=0.3)
     material('tyre', '#0b0b0b', rough=0.86, bump=0.15, bump_scale=600.0, spec=0.25)
+    # אותו חומר בדיוק לשורות הצד של הסוליה: כך הסוליה יוצאת במשחק בשני חלקים, כל אחד מתחת לגבול הנקודות
+    material('tyre_side', '#0b0b0b', rough=0.86, bump=0.15, bump_scale=600.0, spec=0.25)
     material('alloy_black', '#151515', rough=0.32, metal=0.6)
     material('steel', '#9a9a9a', rough=0.28, metal=1.0)
     material('steel_dark', '#4a4a4a', rough=0.35, metal=1.0)
