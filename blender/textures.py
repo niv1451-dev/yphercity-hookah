@@ -43,11 +43,12 @@ def noise(rgb, amount, size=128, blur=0.6, seed=1):
 
 
 def weave(rgb, size=128):
-    img = noise(rgb, 6, size, 0.3, 7)
+    # אריג עדין: קו כל 2 פיקסלים ובניגודיות חלשה. קודם היה קו כל 4 פיקסלים, וזה נראה במשחק כמו משבצות על התיק
+    img = noise(rgb, 4, size, 0.4, 7)
     d = ImageDraw.Draw(img)
-    for i in range(0, size, 4):
-        d.line([(i, 0), (i, size)], fill=tuple(max(0, c - 7) for c in rgb) + (255,))
-        d.line([(0, i + 2), (size, i + 2)], fill=tuple(min(255, c + 6) for c in rgb) + (255,))
+    for i in range(0, size, 2):
+        d.line([(i, 0), (i, size)], fill=tuple(max(0, c - 3) for c in rgb) + (255,))
+        d.line([(0, i + 1), (size, i + 1)], fill=tuple(min(255, c + 3) for c in rgb) + (255,))
     return img
 
 
@@ -143,7 +144,7 @@ def display_wide():
 TEXTURES = {
     'onebike_display': display_wide,
     'onebike_white': lambda: solid((255, 255, 255)),
-    'onebike_yellow': lambda: solid((242, 194, 0)),   # rim stripes: wheels use vehicle_tire, which has no paint colour
+    'onebike_yellow': lambda: solid((236, 178, 0)),   # צהוב עמוק יותר: בחומר הצמיג הצהוב נראה חיוור   # rim stripes: wheels use vehicle_tire, which has no paint colour
     'onebike_spec': lambda: solid((190, 190, 190)),
     # specular maps per surface kind (R intensity, G glossiness, B fresnel): rubber and fabric must stay matte in game
     'onebike_spec_matte': lambda: solid((14, 26, 40)),

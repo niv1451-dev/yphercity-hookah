@@ -73,7 +73,7 @@ SAMPLER_DEFAULTS = {
 # which made fabric, rubber and plastic look like chrome.
 SPEC = {   # kind: (spec texture, specularIntensityMult, specularFalloffMult, specularFresnel)
     'paint': ('onebike_spec_paint', 0.15, 180.0, 0.97),
-    'gloss': ('onebike_spec_gloss', 0.55, 90.0, 0.90),
+    'gloss': ('onebike_spec_gloss', 0.32, 110.0, 0.80),   # פחות החזר אור: הכנף השחורה נראתה במשחק אפורה
     'satin': ('onebike_spec_satin', 0.30, 40.0, 0.75),
     'matte': ('onebike_spec_matte', 0.08, 12.0, 0.50),
     'metal': ('onebike_spec_metal', 1.00, 120.0, 0.97),
@@ -187,6 +187,14 @@ def bake_lod(coll, lod_name, mats_order, bone_mats):
             bpy.data.meshes.remove(me)
         sharp = [e for e in bm.edges if not e.is_manifold or e.calc_face_angle(math.pi) > math.radians(40)]
         bmesh.ops.split_edges(bm, edges=sharp)
+        # מדבקות דו־צדדיות: חלק מהפסים נבנו עם הפנים כלפי הצינור. בלנדר מצייר את שני הצדדים, אבל המשחק מצייר
+        # רק את הצד שפונה למצלמה, ולכן הפסים הצהובים על הסוללה והשלדה נעלמו במשחק. לכל משטח של מדבקה
+        # מוסיפים עותק הפוך, כך שתמיד יש צד אחד שפונה החוצה
+        decal_faces = [f for f in bm.faces if mats_order[f.material_index].startswith('decal_')]
+        if decal_faces:
+            dup = bmesh.ops.duplicate(bm, geom=decal_faces)
+            new_faces = [g for g in dup['geom'] if isinstance(g, bmesh.types.BMFace)]
+            bmesh.ops.reverse_faces(bm, faces=new_faces)
         # רק הגלגלים נשמרים יחסית לעצם שלהם (כמו אצל רוקסטאר). שאר הגוף נשמר בקואורדינטות הכלליות של האופניים,
         # כי הוא יוצא כצורה מעוותת (skinned) שכל נקודה בה קשורה לעצם שלה במשקל מלא
         world = bone_mats[bone] if bone in WHEEL_BONES else Matrix.Identity(4)
@@ -246,7 +254,10 @@ def trim_materials(mesh, shader_mats):
 WHEEL_DIFFUSE = {
     'paint_yellow': 'onebike_yellow', 'decal_yellow': 'onebike_yellow', 'reflector_amber': 'onebike_yellow',
     'paint_black': 'onebike_gloss', 'decal_black': 'onebike_gloss',
+    'alloy_black': 'onebike_gloss',   # החישוק האמיתי שחור מבריק; הטקסטורה האפורה נראתה במשחק אפורה מדי
 }
+# ברק לחלקי הגלגל: "צבע" נתן ברק חזק שהפך את הפס הצהוב לחיוור, אז בגלגל הוא סאטן
+WHEEL_SURFACE = {'paint': 'satin'}
 
 
 def make_shader_materials(tex_dir, sm, shader_mats_mod):
@@ -261,10 +272,10 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
             images[name] = img
         return images[name]
 
-    def make(libname, shader, diffuse, mat_name):
+    def make(libname, shader, diffuse, mat_name, surface=None):
         mat = shader_mats_mod.create_shader(shader + '.sps')
         mat.name = mat_name
-        spec_tex, spec_mult, spec_falloff, spec_fresnel = SPEC[SURFACE[libname]]
+        spec_tex, spec_mult, spec_falloff, spec_fresnel = SPEC[surface or SURFACE[libname]]
         for node in mat.node_tree.nodes:
             if node.bl_idname == 'ShaderNodeTexImage':
                 if node.name == 'DiffuseSampler':
@@ -292,7 +303,8 @@ def make_shader_materials(tex_dir, sm, shader_mats_mod):
             return mats[libname]
         if libname not in wheel_mats:
             diffuse = WHEEL_DIFFUSE.get(libname, SHADERS[libname][1])
-            wheel_mats[libname] = make(libname, 'vehicle_tire', diffuse, 'onebike_wheel_' + libname)
+            surface = WHEEL_SURFACE.get(SURFACE[libname], SURFACE[libname])
+            wheel_mats[libname] = make(libname, 'vehicle_tire', diffuse, 'onebike_wheel_' + libname, surface)
         return wheel_mats[libname]
 
     return mats, wheel_mat

@@ -542,7 +542,8 @@ def fender(name, c, r, a0, a1, bone, hw=0.07, sag=0.022, beak=False, r_end=None)
         outer = [(w * (k / half - 1), sg * (w / hw) * (1 - (k / half - 1) ** 2)) for k in range(2 * half + 1)]
         return outer + [(a, b - th) for a, b in reversed(outer)]
 
-    return lib.sweep(name, pts, prof, 'plastic_gloss', bone, weighted=False)
+    # צבע שחור כמו השלדה: בחומר "פלסטיק מבריק" הכנפיים נראו במשחק אפורות-כחולות בשמש
+    return lib.sweep(name, pts, prof, 'paint_black', bone, weighted=False)
 
 
 RACK_X = 0.098
